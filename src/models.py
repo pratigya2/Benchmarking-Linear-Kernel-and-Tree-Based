@@ -28,13 +28,21 @@ def get_model_specs(y_train=None):
             "grid": {"clf__C": [0.01, 0.1, 1, 10, 100]},
         },
         "LogReg_L1": {
+            # liblinear converges in < 60 iterations for every C in the grid
+            # (saga hit max_iter=5000 in most fits). liblinear also penalises
+            # the intercept; intercept_scaling=10 makes that penalty small.
             "clf": LogisticRegression(
-                l1_ratio=1.0, solver="saga", class_weight="balanced",
-                max_iter=5000, random_state=SEED),
+                l1_ratio=1.0, solver="liblinear", intercept_scaling=10,
+                class_weight="balanced", max_iter=5000, random_state=SEED),
             "grid": {"clf__C": [0.01, 0.1, 1, 10, 100]},
         },
         "LogReg_ElasticNet": {
-            # l1_ratio is tuned in the grid (0 < l1_ratio < 1 = elastic net)
+            # l1_ratio is tuned in the grid (0 < l1_ratio < 1 = elastic net).
+            # Known limitation: saga (the only solver supporting elastic net)
+            # does not converge with balanced class weights, even with
+            # max_iter=200000 or tol=1e-3 (it converges in ~1,700 iterations
+            # without class weights). max_iter stays at 5000; the warnings are
+            # counted in cv_results.csv.
             "clf": LogisticRegression(
                 solver="saga", class_weight="balanced",
                 max_iter=5000, random_state=SEED),
