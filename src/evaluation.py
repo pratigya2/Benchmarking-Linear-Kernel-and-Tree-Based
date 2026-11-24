@@ -1,6 +1,7 @@
 import json
 import numbers
 import time
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_predict
@@ -11,6 +12,10 @@ from sklearn.metrics import (
 )
 
 from .config import SEED, CV_FOLDS
+from .reproducibility import (
+    CountingPipeline, scoring_with_convergence, total_convergence_warnings,
+    count_convergence, reemit,
+)
 
 
 def get_cv(n_splits=CV_FOLDS):
@@ -26,12 +31,14 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
         print(f"\n--- {name} ---")
         t0 = time.time()
 
-        pipe = Pipeline([("pre", preprocessor), ("clf", spec["clf"])])
+        pipe = CountingPipeline([("pre", preprocessor), ("clf", spec["clf"])])
         scoring = "roc_auc" if spec.get("no_proba") else "average_precision"
 
+        # Second (pseudo-)metric counts ConvergenceWarnings per fit;
+        # refit="score" keeps model selection on the main metric.
         gs = GridSearchCV(
-            pipe, spec["grid"], scoring=scoring,
-            cv=cv, n_jobs=-1, refit=True, return_train_score=True,
+            pipe, spec["grid"], scoring=scoring_with_convergence(scoring),
+            cv=cv, n_jobs=-1, refit="score", return_train_score=True,
         )
         gs.fit(X_train, y_train)
         elapsed = time.time() - t0
@@ -39,6 +46,11 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
         print(f"  Best params: {gs.best_params_}")
         print(f"  Best CV {scoring}: {gs.best_score_:.4f}")
         print(f"  Time: {elapsed:.1f}s")
+        n_conv = total_convergence_warnings(gs.cv_results_, gs.n_splits_)
+        n_conv_refit = gs.best_estimator_.n_convergence_warnings_
+        print(f"  ConvergenceWarnings: {n_conv} in "
+              f"{len(gs.cv_results_['params']) * gs.n_splits_} CV fits, "
+              f"{n_conv_refit} in refit")
 
         results[name] = {
             "best_params": gs.best_params_,
@@ -99,28 +111,46 @@ def _cv_summary(name, gs, grid, scoring, elapsed):
         "best_on_grid_edge": on_edge,
         "edge_params": ";".join(edge_params),
         "two_value_params_at_bound": ";".join(two_value),
+        "convergence_warnings": total_convergence_warnings(res, n_splits),
+        "refit_convergence_warnings": gs.best_estimator_.n_convergence_warnings_,
     }
 
 
-def cv_results_table(results):
+def cv_results_table(results, threshold_warnings=None):
     """One row per model, as saved to cv_results.csv."""
-    return pd.DataFrame([r["summary"] for r in results.values()])
+    df = pd.DataFrame([r["summary"] for r in results.values()])
+    if threshold_warnings is not None:
+        df["threshold_convergence_warnings"] = df["model"].map(threshold_warnings)
+    return df
 
 
-def select_thresholds(estimators, X_train, y_train, cv=None):
+def select_thresholds(estimators, X_train, y_train, cv=None,
+                      warning_counts=None):
+    """F1-optimal threshold on out-of-fold predictions.
+
+    If ``warning_counts`` (a dict) is given, it is filled with the number of
+    ConvergenceWarnings raised by the out-of-fold refits of each model.
+    cross_val_predict runs in this process (n_jobs=None), so the warnings
+    can be captured directly; they are re-emitted afterwards.
+    """
     cv = cv or get_cv()
     thresholds = {}
 
     for name, est in estimators.items():
-        if hasattr(est, "predict_proba"):
-            oof = cross_val_predict(est, X_train, y_train, cv=cv,
-                                    method="predict_proba")[:, 1]
-        elif hasattr(est, "decision_function"):
-            oof = cross_val_predict(est, X_train, y_train, cv=cv,
-                                    method="decision_function")
-        else:
+        if not (hasattr(est, "predict_proba") or hasattr(est, "decision_function")):
             thresholds[name] = 0.5
             continue
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            if hasattr(est, "predict_proba"):
+                oof = cross_val_predict(est, X_train, y_train, cv=cv,
+                                        method="predict_proba")[:, 1]
+            else:
+                oof = cross_val_predict(est, X_train, y_train, cv=cv,
+                                        method="decision_function")
+        if warning_counts is not None:
+            warning_counts[name] = count_convergence(records)
+        reemit(records)
 
         prec, rec, thresh = precision_recall_curve(y_train, oof)
         f1s = 2 * prec * rec / (prec + rec + 1e-12)

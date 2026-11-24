@@ -17,7 +17,14 @@ import warnings
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
                               line_buffering=True)
-warnings.filterwarnings("ignore")
+# Warnings: show every distinct warning (including Deprecation/FutureWarnings
+# raised by our own code) instead of silencing them globally. Only known
+# third-party noise is filtered. ConvergenceWarnings are additionally counted
+# per model (see src/reproducibility.py) and reported in cv_results.csv.
+warnings.simplefilter("default")
+# seaborn.heatmap calls Colormap.set_bad, which matplotlib plans to deprecate.
+warnings.filterwarnings("ignore", category=PendingDeprecationWarning,
+                        message=r"The set_bad function will be deprecated")
 
 import numpy as np
 
@@ -146,16 +153,23 @@ def main(argv=None):
     preprocessor = build_preprocessor(with_interactions=True, with_pca=False)
     cv_results, estimators = tune_models(
         model_specs, preprocessor, X_train, y_train, cv)
-    cv_table = cv_results_table(cv_results)
+
+    # ── 7. Threshold selection ────────────────────────────────────────
+    section(7, "THRESHOLD SELECTION")
+    threshold_warnings = {}
+    thresholds = select_thresholds(estimators, X_train, y_train, cv,
+                                   warning_counts=threshold_warnings)
+
+    cv_table = cv_results_table(cv_results, threshold_warnings)
     cv_table.to_csv(config.OUT_DIR / "cv_results.csv", index=False)
     on_edge = cv_table.loc[cv_table["best_on_grid_edge"], ["model", "edge_params"]]
     if len(on_edge):
         print("\nBest value on the grid edge (>= 3-value numeric grids):")
         print(on_edge.to_string(index=False))
-
-    # ── 7. Threshold selection ────────────────────────────────────────
-    section(7, "THRESHOLD SELECTION")
-    thresholds = select_thresholds(estimators, X_train, y_train, cv)
+    print("\nConvergenceWarnings per model "
+          "(CV fits / refit / threshold-selection fits):")
+    print(cv_table[["model", "convergence_warnings", "refit_convergence_warnings",
+                    "threshold_convergence_warnings"]].to_string(index=False))
 
     # ── 8. Test-set evaluation ────────────────────────────────────────
     section(8, "TEST-SET EVALUATION")

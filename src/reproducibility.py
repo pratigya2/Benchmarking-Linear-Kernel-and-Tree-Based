@@ -8,7 +8,12 @@ import platform
 import subprocess
 import sys
 import time
+import warnings
 from importlib import metadata as _importlib_metadata
+
+from imblearn.pipeline import Pipeline as _ImbPipeline
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.pipeline import Pipeline as _SkPipeline
 
 from . import config
 
@@ -163,3 +168,81 @@ class RunMetadata:
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, indent=2)
             f.write("\n")
+
+
+# ── Convergence-warning accounting ────────────────────────────────────
+#
+# GridSearchCV fits run in joblib worker processes, so warnings raised there
+# never reach the main process. The pipelines below record the
+# ConvergenceWarnings raised by their own fit, store the count on the fitted
+# object, and re-emit every captured warning (so nothing is silenced). A
+# scorer then reads the count back, which makes it available in
+# GridSearchCV.cv_results_ for every (configuration, fold) fit.
+
+# Shared registry: with the "default" action each distinct warning is shown
+# once per process (until the warning filters are next modified).
+_REEMIT_REGISTRY = {}
+
+
+def reemit(records):
+    """Re-issue warnings captured with ``catch_warnings(record=True)``."""
+    for w in records:
+        warnings.warn_explicit(w.message, w.category, w.filename, w.lineno,
+                               registry=_REEMIT_REGISTRY)
+
+
+def count_convergence(records):
+    return sum(issubclass(w.category, ConvergenceWarning) for w in records)
+
+
+class _ConvergenceCountingMixin:
+    """Pipeline whose fit() also sets ``n_convergence_warnings_``.
+
+    fit() delegates unchanged to the parent pipeline, so fitted models and
+    their predictions are identical to a plain Pipeline.
+    """
+
+    def fit(self, X, y=None, **params):
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            super().fit(X, y, **params)
+        self.n_convergence_warnings_ = count_convergence(records)
+        reemit(records)
+        return self
+
+
+class CountingPipeline(_ConvergenceCountingMixin, _SkPipeline):
+    pass
+
+
+class CountingImbPipeline(_ConvergenceCountingMixin, _ImbPipeline):
+    pass
+
+
+def convergence_count_scorer(estimator, X, y):
+    """Pseudo-scorer: number of ConvergenceWarnings raised while fitting."""
+    return float(getattr(estimator, "n_convergence_warnings_", 0))
+
+
+CONV_KEY = "n_conv"
+
+
+def scoring_with_convergence(scoring):
+    """Multi-metric scoring dict; use with ``refit="score"`` (or False).
+
+    The main metric keeps the key "score", so cv_results_ still has
+    mean_test_score / rank_test_score / splitK_test_score and model
+    selection is the same as with ``scoring=scoring``.
+    """
+    return {"score": scoring, CONV_KEY: convergence_count_scorer}
+
+
+def total_convergence_warnings(cv_results, n_splits):
+    """Sum of ConvergenceWarnings over all (configuration, fold) fits."""
+    return int(round(sum(cv_results[f"split{k}_test_{CONV_KEY}"].sum()
+                         for k in range(n_splits))))
+
+
+def best_index(cv_results):
+    """Same rule GridSearchCV uses for best_index_ (lowest rank, first)."""
+    return int(cv_results["rank_test_score"].argmin())
