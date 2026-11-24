@@ -38,7 +38,7 @@ from src.analysis import (
     shap_analysis,
 )
 from src import plots
-from src.reproducibility import start_log
+from src.reproducibility import start_log, RunMetadata
 
 np.random.seed(SEED)
 
@@ -85,6 +85,9 @@ def main(argv=None):
     config.FIG_DIR.mkdir(parents=True, exist_ok=True)
     start_log(config.OUT_DIR / "run.log")
     n_folds = FAST_CV_FOLDS if args.fast else CV_FOLDS
+    run_meta = RunMetadata(config.OUT_DIR / "run_metadata.json",
+                           argv=sys.argv if argv is None else ["main.py"] + list(argv),
+                           cv_folds=n_folds, fast=args.fast)
     if args.fast:
         print(f"*** FAST MODE: smoke test only, results are not meaningful ***")
 
@@ -239,6 +242,8 @@ def main(argv=None):
     n_figs = len(list(config.FIG_DIR.glob("*.png")))
     print(f"Outputs: {config.OUT_DIR}")
     print(f"Figures: {n_figs} PNGs in {config.FIG_DIR}")
+    run_meta.finish()
+    print(f"Wall-clock time: {run_meta.data['wall_clock_seconds']:.1f} s")
 
 
 if __name__ == "__main__":
