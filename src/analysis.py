@@ -12,6 +12,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from .config import SEED, CAT_COL, NUM_FEATURES
 from .preprocessing import build_preprocessor, get_feature_names, interaction_steps
 from .evaluation import get_cv
+from .models import fit_params
 from .reproducibility import (
     CountingPipeline, CountingImbPipeline, scoring_with_convergence,
     total_convergence_warnings, best_index,
@@ -56,7 +57,7 @@ def run_ablation(model_specs, X_train, y_train, cv=None):
             gs = GridSearchCV(pipe, spec["grid"],
                               scoring=scoring_with_convergence(scoring),
                               cv=cv, n_jobs=-1, refit=False)
-            gs.fit(X_train, y_train)
+            gs.fit(X_train, y_train, **fit_params(spec, y_train))
             best_score, n_conv = _best_score_and_warnings(gs)
             rows.append({
                 "config": config_name, "model": name,

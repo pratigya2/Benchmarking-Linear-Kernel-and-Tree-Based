@@ -159,7 +159,8 @@ def main(argv=None):
     section(7, "THRESHOLD SELECTION")
     threshold_warnings = {}
     thresholds = select_thresholds(estimators, X_train, y_train, cv,
-                                   warning_counts=threshold_warnings)
+                                   warning_counts=threshold_warnings,
+                                   model_specs=model_specs)
 
     cv_table = cv_results_table(cv_results, threshold_warnings)
     cv_table.to_csv(config.OUT_DIR / "cv_results.csv", index=False)

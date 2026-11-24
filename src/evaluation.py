@@ -12,6 +12,7 @@ from sklearn.metrics import (
 )
 
 from .config import SEED, CV_FOLDS
+from .models import fit_params
 from .reproducibility import (
     CountingPipeline, scoring_with_convergence, total_convergence_warnings,
     count_convergence, reemit,
@@ -42,7 +43,7 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
             pipe, spec["grid"], scoring=scoring_with_convergence(scoring),
             cv=cv, n_jobs=-1, refit="score", return_train_score=True,
         )
-        gs.fit(X_train, y_train)
+        gs.fit(X_train, y_train, **fit_params(spec, y_train))
         elapsed = time.time() - t0
 
         print(f"  Best params: {gs.best_params_}")
@@ -127,7 +128,7 @@ def cv_results_table(results, threshold_warnings=None):
 
 
 def select_thresholds(estimators, X_train, y_train, cv=None,
-                      warning_counts=None):
+                      warning_counts=None, model_specs=None):
     """F1-optimal threshold on out-of-fold predictions.
 
     If ``warning_counts`` (a dict) is given, it is filled with the number of
@@ -142,14 +143,17 @@ def select_thresholds(estimators, X_train, y_train, cv=None,
         if not (hasattr(est, "predict_proba") or hasattr(est, "decision_function")):
             thresholds[name] = 0.5
             continue
+        params = fit_params((model_specs or {}).get(name, {}), y_train)
         with warnings.catch_warnings(record=True) as records:
             warnings.simplefilter("always")
             if hasattr(est, "predict_proba"):
                 oof = cross_val_predict(est, X_train, y_train, cv=cv,
-                                        method="predict_proba")[:, 1]
+                                        method="predict_proba",
+                                        params=params)[:, 1]
             else:
                 oof = cross_val_predict(est, X_train, y_train, cv=cv,
-                                        method="decision_function")
+                                        method="decision_function",
+                                        params=params)
         if warning_counts is not None:
             warning_counts[name] = count_convergence(records)
         reemit(records)

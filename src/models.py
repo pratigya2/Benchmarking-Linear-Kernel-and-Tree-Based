@@ -5,6 +5,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.utils.class_weight import compute_sample_weight
 import xgboost as xgb
 
 from .config import SEED
@@ -85,13 +86,18 @@ def get_model_specs(y_train=None):
                      "clf__min_samples_leaf": [1, 5]},
         },
         "GradientBoosting": {
+            # No class_weight argument: balanced weights are passed as
+            # sample_weight at fit time (see fit_params).
             "clf": GradientBoostingClassifier(random_state=SEED),
+            "sample_weight": "balanced",
             "grid": {"clf__n_estimators": [100, 300],
                      "clf__max_depth": [3, 5, 7],
                      "clf__learning_rate": [0.05, 0.1],
                      "clf__subsample": [0.8, 1.0]},
         },
         "XGBoost": {
+            # scale_pos_weight = n_neg / n_pos gives positives the same
+            # relative weight as class_weight="balanced" (equivalent mechanism).
             "clf": xgb.XGBClassifier(
                 eval_metric="logloss", scale_pos_weight=pos_weight,
                 random_state=SEED, n_jobs=-1, verbosity=0),
@@ -101,6 +107,19 @@ def get_model_specs(y_train=None):
                      "clf__subsample": [0.8, 1.0]},
         },
     }
+
+
+def fit_params(spec, y):
+    """Extra fit() arguments for a model spec inside a Pipeline("clf").
+
+    Models without a class_weight argument (Gradient Boosting) get balanced
+    sample weights computed from the labels they are fitted on. Pass the
+    result to GridSearchCV.fit / cross_val_predict(params=...); both slice
+    it per fold.
+    """
+    if spec.get("sample_weight") == "balanced":
+        return {"clf__sample_weight": compute_sample_weight("balanced", y)}
+    return {}
 
 
 def get_smote_specs():
