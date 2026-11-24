@@ -48,8 +48,6 @@ from src.analysis import (
 from src import plots
 from src.reproducibility import start_log, RunMetadata
 
-np.random.seed(SEED)
-
 # --fast smoke-test settings (never used for reported results)
 FAST_N_ROWS = 2000
 FAST_CV_FOLDS = 3
