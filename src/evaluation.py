@@ -32,7 +32,9 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
         t0 = time.time()
 
         pipe = CountingPipeline([("pre", preprocessor), ("clf", spec["clf"])])
-        scoring = "roc_auc" if spec.get("no_proba") else "average_precision"
+        # All models are tuned on PR-AUC (average precision works with
+        # decision_function scores too, e.g. LinearSVM).
+        scoring = "average_precision"
 
         # Second (pseudo-)metric counts ConvergenceWarnings per fit;
         # refit="score" keeps model selection on the main metric.

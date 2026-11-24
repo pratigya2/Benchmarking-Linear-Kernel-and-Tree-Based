@@ -52,8 +52,7 @@ def run_ablation(model_specs, X_train, y_train, cv=None):
                                  with_pca=use_pca, n_components=0.95)
         for name, spec in subset.items():
             pipe = CountingPipeline([("pre", pre), ("clf", spec["clf"])])
-            scoring = ("roc_auc" if spec.get("no_proba")
-                       else "average_precision")
+            scoring = "average_precision"
             gs = GridSearchCV(pipe, spec["grid"],
                               scoring=scoring_with_convergence(scoring),
                               cv=cv, n_jobs=-1, refit=False)

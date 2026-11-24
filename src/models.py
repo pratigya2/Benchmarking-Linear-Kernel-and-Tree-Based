@@ -54,7 +54,6 @@ def get_model_specs(y_train=None):
                 class_weight="balanced", dual="auto",
                 max_iter=10000, random_state=SEED),
             "grid": {"clf__C": [0.01, 0.1, 1, 10]},
-            "no_proba": True,
         },
         "RBF_SVM": {
             "clf": SVC(
