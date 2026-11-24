@@ -29,7 +29,7 @@ from src.data import load_raw, clean, split
 from src.preprocessing import build_preprocessor
 from src.models import get_model_specs, get_smote_specs
 from src.evaluation import (
-    get_cv, tune_models, select_thresholds,
+    get_cv, tune_models, select_thresholds, cv_results_table,
     evaluate_test, significance_table, print_classification_reports,
 )
 from src.analysis import (
@@ -146,6 +146,12 @@ def main(argv=None):
     preprocessor = build_preprocessor(with_interactions=True, with_pca=False)
     cv_results, estimators = tune_models(
         model_specs, preprocessor, X_train, y_train, cv)
+    cv_table = cv_results_table(cv_results)
+    cv_table.to_csv(config.OUT_DIR / "cv_results.csv", index=False)
+    on_edge = cv_table.loc[cv_table["best_on_grid_edge"], ["model", "edge_params"]]
+    if len(on_edge):
+        print("\nBest value on the grid edge (>= 3-value numeric grids):")
+        print(on_edge.to_string(index=False))
 
     # ── 7. Threshold selection ────────────────────────────────────────
     section(7, "THRESHOLD SELECTION")

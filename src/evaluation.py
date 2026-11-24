@@ -1,3 +1,5 @@
+import json
+import numbers
 import time
 import numpy as np
 import pandas as pd
@@ -43,10 +45,66 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
             "cv_score": gs.best_score_,
             "scoring": scoring,
             "time": elapsed,
+            "summary": _cv_summary(name, gs, spec["grid"], scoring, elapsed),
         }
         estimators[name] = gs.best_estimator_
 
     return results, estimators
+
+
+def grid_edge_check(best_params, grid):
+    """Flag hyperparameters whose selected value lies on the grid boundary.
+
+    Only numeric parameters are checked (``None`` is treated as the largest
+    value, e.g. ``max_depth=None`` = unlimited). Parameters with >= 3 grid
+    values set the edge flag; parameters with exactly 2 values are always
+    "on the boundary" by construction, so they are only reported.
+
+    Returns (best_on_grid_edge, edge_params, two_value_params_at_bound).
+    """
+    edge, two_value = [], []
+    for param, values in grid.items():
+        numeric = [v for v in values if v is not None]
+        if not all(isinstance(v, numbers.Number) and not isinstance(v, bool)
+                   for v in numeric):
+            continue  # categorical parameter: no ordering, no edge
+        ordered = sorted(numeric) + ([None] if None in values else [])
+        if len(ordered) < 2:
+            continue
+        best = best_params[param]
+        if best == ordered[0] or best == ordered[-1]:
+            (edge if len(ordered) >= 3 else two_value).append(param)
+    return bool(edge), edge, two_value
+
+
+def _cv_summary(name, gs, grid, scoring, elapsed):
+    res = gs.cv_results_
+    i = gs.best_index_
+    n_splits = gs.n_splits_
+    folds = [float(res[f"split{k}_test_score"][i]) for k in range(n_splits)]
+    on_edge, edge_params, two_value = grid_edge_check(gs.best_params_, grid)
+    n_configs = len(res["params"])
+    return {
+        "model": name,
+        "scoring": scoring,
+        "best_params": json.dumps(gs.best_params_),
+        "best_cv_mean": float(res["mean_test_score"][i]),
+        "best_cv_std": float(res["std_test_score"][i]),
+        "fold_scores": json.dumps(folds),
+        "n_configs": n_configs,
+        "n_folds": n_splits,
+        "n_fits": n_configs * n_splits,
+        "tuning_time_s": round(elapsed, 2),
+        "mean_fit_time_s": round(float(np.mean(res["mean_fit_time"])), 4),
+        "best_on_grid_edge": on_edge,
+        "edge_params": ";".join(edge_params),
+        "two_value_params_at_bound": ";".join(two_value),
+    }
+
+
+def cv_results_table(results):
+    """One row per model, as saved to cv_results.csv."""
+    return pd.DataFrame([r["summary"] for r in results.values()])
 
 
 def select_thresholds(estimators, X_train, y_train, cv=None):
