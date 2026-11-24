@@ -15,7 +15,8 @@ import sys
 import io
 import warnings
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace",
+                              line_buffering=True)
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -37,6 +38,7 @@ from src.analysis import (
     shap_analysis,
 )
 from src import plots
+from src.reproducibility import start_log
 
 np.random.seed(SEED)
 
@@ -81,6 +83,7 @@ def main(argv=None):
     config.set_out_dir(args.out_dir)
     config.OUT_DIR.mkdir(parents=True, exist_ok=True)
     config.FIG_DIR.mkdir(parents=True, exist_ok=True)
+    start_log(config.OUT_DIR / "run.log")
     n_folds = FAST_CV_FOLDS if args.fast else CV_FOLDS
     if args.fast:
         print(f"*** FAST MODE: smoke test only, results are not meaningful ***")
