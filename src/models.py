@@ -65,7 +65,7 @@ def get_model_specs(y_train=None):
         },
         "KNN": {
             "clf": KNeighborsClassifier(),
-            "grid": {"clf__n_neighbors": [3, 5, 7, 11, 15],
+            "grid": {"clf__n_neighbors": [3, 5, 7, 11, 15, 21, 31, 45],
                      "clf__weights": ["uniform", "distance"]},
         },
         "GaussianNB": {
@@ -81,7 +81,7 @@ def get_model_specs(y_train=None):
         "RandomForest": {
             "clf": RandomForestClassifier(
                 class_weight="balanced", random_state=SEED, n_jobs=-1),
-            "grid": {"clf__n_estimators": [100, 300],
+            "grid": {"clf__n_estimators": [100, 300, 500],
                      "clf__max_depth": [5, 10, None],
                      "clf__min_samples_leaf": [1, 5]},
         },
@@ -90,7 +90,7 @@ def get_model_specs(y_train=None):
             # sample_weight at fit time (see fit_params).
             "clf": GradientBoostingClassifier(random_state=SEED),
             "sample_weight": "balanced",
-            "grid": {"clf__n_estimators": [100, 300],
+            "grid": {"clf__n_estimators": [100, 300, 500],
                      "clf__max_depth": [3, 5, 7],
                      "clf__learning_rate": [0.05, 0.1],
                      "clf__subsample": [0.8, 1.0]},
@@ -101,8 +101,8 @@ def get_model_specs(y_train=None):
             "clf": xgb.XGBClassifier(
                 eval_metric="logloss", scale_pos_weight=pos_weight,
                 random_state=SEED, n_jobs=-1, verbosity=0),
-            "grid": {"clf__n_estimators": [100, 300],
-                     "clf__max_depth": [3, 5, 7],
+            "grid": {"clf__n_estimators": [100, 300, 500],
+                     "clf__max_depth": [3, 5, 7, 9],
                      "clf__learning_rate": [0.05, 0.1],
                      "clf__subsample": [0.8, 1.0]},
         },
