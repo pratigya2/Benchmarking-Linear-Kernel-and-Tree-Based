@@ -111,11 +111,20 @@ def plot_pca_variance(pca_model, cumvar, n95):
     _save(fig, "05_pca_variance.png")
 
 
-def plot_ablation_heatmap(pivot_df):
-    fig, ax = plt.subplots(figsize=(8, 4))
-    sns.heatmap(pivot_df, annot=True, fmt=".4f", cmap="YlGnBu", ax=ax)
-    ax.set_title("Ablation study: CV score by preprocessing config and model")
-    ax.set_ylabel("Preprocessing config")
+def plot_ablation_heatmap(pivot_df, std_df=None):
+    """Models (rows) x preprocessing configs (columns), mean +/- std CV PR-AUC."""
+    mean = pivot_df.T
+    if std_df is not None:
+        std = std_df.T.loc[mean.index, mean.columns]
+        labels = mean.map(lambda v: f"{v:.3f}") + "\n±" + std.map(lambda v: f"{v:.3f}")
+    else:
+        labels = mean.map(lambda v: f"{v:.3f}")
+    fig, ax = plt.subplots(figsize=(9, 0.55 * len(mean) + 1.5))
+    sns.heatmap(mean, annot=labels.to_numpy(), fmt="", cmap="YlGnBu", ax=ax,
+                cbar_kws={"label": "Mean CV PR-AUC"}, annot_kws={"fontsize": 8})
+    ax.set_title("Ablation study: CV PR-AUC (mean ± std over folds)")
+    ax.set_xlabel("Preprocessing config")
+    ax.set_ylabel("Model")
     plt.tight_layout()
     _save(fig, "06_ablation_heatmap.png")
 

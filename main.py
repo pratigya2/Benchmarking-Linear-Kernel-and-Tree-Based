@@ -203,10 +203,14 @@ def main(argv=None):
     if args.skip_ablation:
         print("Skipped (--skip-ablation).")
     else:
-        abl_pivot = run_ablation(model_specs, X_train, y_train, cv)
-        print("\n" + abl_pivot.round(4).to_string())
+        abl_pivot, abl_std, abl_long = run_ablation(
+            model_specs, X_train, y_train, cv)
+        print("\nMean CV PR-AUC:\n" + abl_pivot.round(4).to_string())
+        print("\nStd over folds:\n" + abl_std.round(4).to_string())
         abl_pivot.to_csv(config.OUT_DIR / "ablation_results.csv")
-        plots.plot_ablation_heatmap(abl_pivot)
+        abl_std.to_csv(config.OUT_DIR / "ablation_results_std.csv")
+        abl_long.to_csv(config.OUT_DIR / "ablation_results_long.csv", index=False)
+        plots.plot_ablation_heatmap(abl_pivot, abl_std)
 
     # ── 10. SMOTE comparison ──────────────────────────────────────────
     section(10, "SMOTE vs CLASS_WEIGHT")

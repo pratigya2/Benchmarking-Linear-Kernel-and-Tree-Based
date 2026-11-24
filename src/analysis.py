@@ -21,13 +21,6 @@ from .reproducibility import (
 )
 
 
-def _best_score_and_warnings(gs):
-    """Best mean CV score (GridSearchCV's own rule) and ConvergenceWarnings."""
-    res = gs.cv_results_
-    score = float(res["mean_test_score"][best_index(res)])
-    return score, total_convergence_warnings(res, gs.n_splits_)
-
-
 def pca_variance_analysis(X_train):
     pre = build_preprocessor(with_interactions=True, with_pca=False)
     X_transformed = pre.fit_transform(X_train)
@@ -37,7 +30,16 @@ def pca_variance_analysis(X_train):
     return pca, cumvar, n95, X_transformed.shape[1]
 
 
+ABLATION_CONFIGS = ["baseline", "interactions", "PCA_only", "interactions+PCA"]
+
+
 def run_ablation(model_specs, X_train, y_train, cv=None):
+    """Interactions / PCA ablation for every model (each config re-tuned).
+
+    Returns (mean_pivot, std_pivot, long_df): best mean CV PR-AUC and its
+    std over folds per config x model, and one row per config/model with
+    the selected parameters and ConvergenceWarnings.
+    """
     cv = cv or get_cv()
     configs = [
         ("baseline",          False, False),
@@ -46,34 +48,36 @@ def run_ablation(model_specs, X_train, y_train, cv=None):
         ("interactions+PCA",  True,  True),
     ]
 
-    subset_keys = ["LogReg_L2", "RBF_SVM", "RandomForest", "XGBoost"]
-    subset = {k: model_specs[k] for k in subset_keys if k in model_specs}
-
     rows = []
     for config_name, use_int, use_pca in configs:
         pre = build_preprocessor(with_interactions=use_int,
                                  with_pca=use_pca, n_components=0.95)
-        for name, spec in subset.items():
+        for name, spec in model_specs.items():
             pipe = CountingPipeline([("pre", pre), ("clf", spec["clf"])])
             scoring = "average_precision"
             gs = GridSearchCV(pipe, spec["grid"],
                               scoring=scoring_with_convergence(scoring),
                               cv=cv, n_jobs=-1, refit=False)
             gs.fit(X_train, y_train, **fit_params(spec, y_train))
-            best_score, n_conv = _best_score_and_warnings(gs)
+            res = gs.cv_results_
+            i = best_index(res)
+            mean, std = float(res["mean_test_score"][i]), float(res["std_test_score"][i])
+            n_conv = total_convergence_warnings(res, gs.n_splits_)
             rows.append({
                 "config": config_name, "model": name,
-                "cv_score": best_score, "metric": scoring,
+                "cv_mean": mean, "cv_std": std, "metric": scoring,
+                "best_params": json.dumps(res["params"][i]),
+                "convergence_warnings": n_conv,
             })
-            print(f"  {config_name:20s} | {name:15s} | "
-                  f"{scoring}={best_score:.4f} | "
+            print(f"  {config_name:20s} | {name:17s} | "
+                  f"{scoring}={mean:.4f} +/- {std:.4f} | "
                   f"ConvergenceWarnings={n_conv}")
 
-    df = pd.DataFrame(rows)
-    pivot = df.pivot(index="config", columns="model", values="cv_score")
-    pivot = pivot.loc[["baseline", "interactions",
-                       "PCA_only", "interactions+PCA"]]
-    return pivot
+    long_df = pd.DataFrame(rows)
+    models = list(model_specs)
+    pivots = [long_df.pivot(index="config", columns="model", values=v)
+              .loc[ABLATION_CONFIGS, models] for v in ("cv_mean", "cv_std")]
+    return pivots[0], pivots[1], long_df
 
 
 SMOTE_MODELS = ["LogReg_L2", "RandomForest", "GradientBoosting", "XGBoost"]
