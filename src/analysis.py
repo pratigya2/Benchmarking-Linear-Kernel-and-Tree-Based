@@ -10,7 +10,7 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 
 from .config import SEED, CAT_COL, NUM_FEATURES
-from .preprocessing import build_preprocessor, get_feature_names
+from .preprocessing import build_preprocessor, get_feature_names, interaction_steps
 from .evaluation import get_cv
 from .reproducibility import (
     CountingPipeline, CountingImbPipeline, scoring_with_convergence,
@@ -86,8 +86,7 @@ def run_smote_comparison(smote_specs, cv_results, X_train, y_train, cv=None):
         ])
         pipe = CountingImbPipeline([
             ("encode_scale", ct),
-            ("interactions", PolynomialFeatures(
-                degree=2, interaction_only=True, include_bias=False)),
+            *interaction_steps(),
             ("smote", SMOTE(random_state=SEED)),
             ("clf", spec["clf"]),
         ])
