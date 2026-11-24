@@ -104,8 +104,18 @@ curl -L -o data/ai4i2020.csv \
 ## Usage
 
 ```bash
-python main.py
+python main.py                      # full run (writes to outputs/)
+python main.py --fast               # smoke test, < 2 min; results not meaningful
+python main.py --skip-ablation --skip-smote
+python main.py --out-dir results/run_a
 ```
+
+| Option | Effect |
+|---|---|
+| `--fast` | 2,000-row stratified subsample, 3-fold CV, first grid value only, 200 bootstrap resamples, no SHAP |
+| `--skip-ablation` | Skip the interactions/PCA ablation study |
+| `--skip-smote` | Skip the SMOTE vs class-weight comparison |
+| `--out-dir DIR` | Write all outputs to `DIR` (default `outputs/`) |
 
 The full pipeline takes ~10–15 minutes and runs through:
 

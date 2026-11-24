@@ -11,8 +11,8 @@ from sklearn.metrics import (
 from .config import SEED, CV_FOLDS
 
 
-def get_cv():
-    return StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED)
+def get_cv(n_splits=CV_FOLDS):
+    return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
 
 
 def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
@@ -131,7 +131,7 @@ def paired_bootstrap_test(y_true, proba_a, proba_b,
     return delta, count / n_boot
 
 
-def significance_table(metrics_df, probas, y_test):
+def significance_table(metrics_df, probas, y_test, n_boot=3000):
     ranked = [n for n in metrics_df.index if n in probas]
     if len(ranked) < 2:
         return
@@ -140,7 +140,7 @@ def significance_table(metrics_df, probas, y_test):
     print(f"Comparing {best} vs. each other model (PR-AUC):")
     for other in ranked[1:]:
         delta, pval = paired_bootstrap_test(
-            y_test, probas[best], probas[other])
+            y_test, probas[best], probas[other], n_boot=n_boot)
         sig = ("***" if pval < 0.001 else
                "**" if pval < 0.01 else
                "*" if pval < 0.05 else "ns")
