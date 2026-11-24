@@ -265,8 +265,9 @@ def main(argv=None):
 
     # ── 14. Statistical significance ──────────────────────────────────
     section(14, "STATISTICAL SIGNIFICANCE")
-    significance_table(metrics_df, probas, y_test,
-                       n_boot=FAST_N_BOOT if args.fast else 3000)
+    sig_df = significance_table(metrics_df, probas, y_test,
+                                n_boot=FAST_N_BOOT if args.fast else 2000)
+    sig_df.to_csv(config.OUT_DIR / "significance.csv", index=False)
 
     # ── 15. Final ranking ─────────────────────────────────────────────
     section(15, "FINAL MODEL RANKING")

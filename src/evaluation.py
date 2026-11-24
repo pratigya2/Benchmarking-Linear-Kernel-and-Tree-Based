@@ -206,39 +206,91 @@ def evaluate_test(estimators, thresholds, X_test, y_test):
     return metrics_df, probas
 
 
-def paired_bootstrap_test(y_true, proba_a, proba_b,
-                          n_boot=3000, seed=SEED):
+def holm_adjust(pvalues):
+    """Holm step-down adjusted p-values (same order as the input)."""
+    p = np.asarray(pvalues, dtype=float)
+    m = len(p)
+    order = np.argsort(p)
+    adjusted = np.empty(m)
+    running = 0.0
+    for rank, idx in enumerate(order):
+        running = max(running, min(1.0, (m - rank) * p[idx]))
+        adjusted[idx] = running
+    return adjusted
+
+
+def bootstrap_significance(metrics_df, probas, y_test, n_boot=2000,
+                           seed=SEED, alpha=0.05):
+    """Bootstrap CIs of test PR-AUC and paired tests of the best model.
+
+    One shared set of ``n_boot`` resamples of the test set (seed ``seed``)
+    is used for every model, so differences are paired. For each model:
+    percentile 95% CI of PR-AUC. For the best model (highest test PR-AUC)
+    vs each other model: one-sided p-value for H1 "best > other",
+    p = (#{resamples with delta <= 0} + 1) / (n_boot + 1), then Holm
+    correction over all comparisons.
+    """
+    y = np.asarray(y_test)
+    n = len(y)
+    models = [m for m in metrics_df.index if m in probas]
+    best = models[0]
+
     rng = np.random.RandomState(seed)
-    n = len(y_true)
-    y_arr = y_true.values if hasattr(y_true, "values") else y_true
-
-    delta = (average_precision_score(y_arr, proba_a) -
-             average_precision_score(y_arr, proba_b))
-    count = 0
-    for _ in range(n_boot):
+    boot = {m: np.empty(n_boot) for m in models}
+    for b in range(n_boot):
         idx = rng.choice(n, n, replace=True)
-        diff = (average_precision_score(y_arr[idx], proba_a[idx]) -
-                average_precision_score(y_arr[idx], proba_b[idx]))
-        if diff <= 0:
-            count += 1
+        while y[idx].sum() == 0:  # PR-AUC undefined without positives
+            idx = rng.choice(n, n, replace=True)
+        for m in models:
+            boot[m][b] = average_precision_score(y[idx], probas[m][idx])
 
-    return delta, count / n_boot
+    rows = []
+    for m in models:
+        point = average_precision_score(y, probas[m])
+        lo, hi = np.percentile(boot[m], [2.5, 97.5])
+        row = {"model": m, "pr_auc": point, "ci_low": lo, "ci_high": hi,
+               "delta_vs_best": np.nan, "delta_ci_low": np.nan,
+               "delta_ci_high": np.nan, "p_one_sided": np.nan}
+        if m != best:
+            deltas = boot[best] - boot[m]
+            row["delta_vs_best"] = (average_precision_score(y, probas[best])
+                                    - point)
+            row["delta_ci_low"], row["delta_ci_high"] = np.percentile(
+                deltas, [2.5, 97.5])
+            row["p_one_sided"] = ((deltas <= 0).sum() + 1) / (n_boot + 1)
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    others = df["model"] != best
+    df["p_holm"] = np.nan
+    df.loc[others, "p_holm"] = holm_adjust(df.loc[others, "p_one_sided"])
+    # empty for the best model itself (nothing to compare)
+    df["significant_0.05"] = pd.array(
+        [pd.NA if m == best else bool(ph < alpha)
+         for m, ph in zip(df["model"], df["p_holm"])], dtype="boolean")
+    df.attrs.update(best=best, n_boot=n_boot, seed=seed)
+    return df
 
 
-def significance_table(metrics_df, probas, y_test, n_boot=3000):
-    ranked = [n for n in metrics_df.index if n in probas]
-    if len(ranked) < 2:
-        return
-
-    best = ranked[0]
-    print(f"Comparing {best} vs. each other model (PR-AUC):")
-    for other in ranked[1:]:
-        delta, pval = paired_bootstrap_test(
-            y_test, probas[best], probas[other], n_boot=n_boot)
-        sig = ("***" if pval < 0.001 else
-               "**" if pval < 0.01 else
-               "*" if pval < 0.05 else "ns")
-        print(f"  vs {other:20s}: delta={delta:+.4f}, p={pval:.4f} {sig}")
+def significance_table(metrics_df, probas, y_test, n_boot=2000):
+    """Print and return the bootstrap significance table."""
+    df = bootstrap_significance(metrics_df, probas, y_test, n_boot=n_boot)
+    best = df.attrs["best"]
+    print(f"Test PR-AUC with bootstrap 95% CI ({n_boot} paired resamples, "
+          f"seed {SEED}).")
+    print(f"Paired test of {best} vs each other model: one-sided "
+          f"(H1: {best} > other), Holm-corrected over {len(df) - 1} "
+          f"comparisons.")
+    for _, r in df.iterrows():
+        line = (f"  {r['model']:20s} PR-AUC={r['pr_auc']:.4f} "
+                f"[{r['ci_low']:.4f}, {r['ci_high']:.4f}]")
+        if r["model"] != best:
+            line += (f"  delta={r['delta_vs_best']:+.4f}  "
+                     f"p(one-sided)={r['p_one_sided']:.4f}  "
+                     f"p(Holm)={r['p_holm']:.4f}"
+                     f"{'  *' if r['significant_0.05'] else ''}")
+        print(line)
+    return df
 
 
 def print_classification_reports(metrics_df, probas, thresholds,
