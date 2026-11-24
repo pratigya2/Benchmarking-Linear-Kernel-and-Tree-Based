@@ -26,6 +26,7 @@ warnings.simplefilter("default")
 warnings.filterwarnings("ignore", category=PendingDeprecationWarning,
                         message=r"The set_bad function will be deprecated")
 
+import joblib
 import numpy as np
 
 from sklearn.model_selection import train_test_split
@@ -176,6 +177,22 @@ def main(argv=None):
     metrics_df, probas = evaluate_test(estimators, thresholds, X_test, y_test)
     print("\n" + metrics_df.to_string())
     metrics_df.to_csv(config.OUT_DIR / "test_metrics.csv")
+
+    # Persist the fitted state so later analyses can run without retuning
+    # (see analyze.py). Test rows are stored by index into the cleaned data.
+    joblib.dump({
+        "estimators": estimators,
+        "thresholds": thresholds,
+        "probas": probas,
+        "metrics_df": metrics_df,
+        "cv_results": cv_results,
+        "cv_table": cv_table,
+        "train_index": X_train.index.to_numpy(),
+        "test_index": X_test.index.to_numpy(),
+        "fast_mode": args.fast,
+        "git_commit": run_meta.data["git_commit"],
+    }, config.OUT_DIR / "_state.joblib")
+    print(f"Fitted state saved to {config.OUT_DIR / '_state.joblib'}")
 
     best_name = metrics_df.index[0]
 

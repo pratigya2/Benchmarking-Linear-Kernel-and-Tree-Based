@@ -36,6 +36,8 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 
 ```
 ├── main.py                  # Entry point — runs the full pipeline
+├── analyze.py               # Reloads outputs/_state.joblib (no retuning)
+├── requirements.txt         # Pinned dependency versions
 ├── src/
 │   ├── config.py            # Constants, paths, feature names, seed
 │   ├── data.py              # Load, clean, train/test split
@@ -43,6 +45,7 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 │   ├── models.py            # Model specs and hyperparameter grids
 │   ├── evaluation.py        # Tuning, thresholds, metrics, bootstrap tests
 │   ├── analysis.py          # Ablation, SMOTE, feature importance, SHAP
+│   ├── reproducibility.py   # Run log, run metadata, ConvergenceWarning counting
 │   └── plots.py             # All 17 figures
 ├── data/
 │   └── ai4i2020.csv         # Downloaded from UCI (not tracked in git)
@@ -66,8 +69,14 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 │   │   ├── 16_model_ranking.png
 │   │   └── 17_multi_metric_comparison.png
 │   ├── test_metrics.csv
+│   ├── cv_results.csv       # Tuning summary per model (grid edge, convergence warnings)
 │   ├── ablation_results.csv
-│   └── smote_comparison.csv
+│   ├── smote_comparison.csv
+│   ├── run_metadata.json    # Commit, versions, hardware, seed, runtime
+│   ├── run.log              # Full console log of the run
+│   └── _state.joblib        # Fitted models, thresholds, test scores
+├── tests/
+│   └── test_pipeline.py     # pytest suite (includes a --fast smoke run)
 └── README.md
 ```
 
