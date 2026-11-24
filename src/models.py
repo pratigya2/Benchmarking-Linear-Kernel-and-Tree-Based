@@ -47,7 +47,7 @@ def get_model_specs(y_train=None):
             "clf": LogisticRegression(
                 solver="saga", class_weight="balanced",
                 max_iter=5000, random_state=SEED),
-            "grid": {"clf__C": [0.01, 0.1, 1, 10],
+            "grid": {"clf__C": [0.01, 0.1, 1, 10, 100],
                      "clf__l1_ratio": [0.2, 0.5, 0.8]},
         },
         "LinearSVM": {
@@ -70,13 +70,15 @@ def get_model_specs(y_train=None):
         },
         "GaussianNB": {
             "clf": GaussianNB(),
-            "grid": {"clf__var_smoothing": [1e-11, 1e-9, 1e-7, 1e-5]},
+            "grid": {"clf__var_smoothing": [1e-15, 1e-13, 1e-11, 1e-9, 1e-7, 1e-5]},
         },
         "DecisionTree": {
             "clf": DecisionTreeClassifier(
                 class_weight="balanced", random_state=SEED),
+            # max_depth=None (unlimited) is the top of the range and cannot
+            # be widened further.
             "grid": {"clf__max_depth": [3, 5, 7, 10, None],
-                     "clf__min_samples_leaf": [1, 5, 10]},
+                     "clf__min_samples_leaf": [1, 5, 10, 20, 50]},
         },
         "RandomForest": {
             "clf": RandomForestClassifier(
