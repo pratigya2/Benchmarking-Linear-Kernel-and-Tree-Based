@@ -11,6 +11,9 @@ from .config import SEED
 
 
 def get_model_specs(y_train=None):
+    """Models and grids. LogisticRegression uses the l1_ratio API
+    (scikit-learn >= 1.8): 0 = L2, 1 = L1, in between = elastic net.
+    The former `penalty=` argument is deprecated and removed in 1.10."""
     pos_weight = 1.0
     if y_train is not None:
         n_neg = (y_train == 0).sum()
@@ -20,19 +23,20 @@ def get_model_specs(y_train=None):
     return {
         "LogReg_L2": {
             "clf": LogisticRegression(
-                penalty="l2", solver="lbfgs", class_weight="balanced",
+                l1_ratio=0.0, solver="lbfgs", class_weight="balanced",
                 max_iter=5000, random_state=SEED),
             "grid": {"clf__C": [0.01, 0.1, 1, 10, 100]},
         },
         "LogReg_L1": {
             "clf": LogisticRegression(
-                penalty="l1", solver="saga", class_weight="balanced",
+                l1_ratio=1.0, solver="saga", class_weight="balanced",
                 max_iter=5000, random_state=SEED),
             "grid": {"clf__C": [0.01, 0.1, 1, 10, 100]},
         },
         "LogReg_ElasticNet": {
+            # l1_ratio is tuned in the grid (0 < l1_ratio < 1 = elastic net)
             "clf": LogisticRegression(
-                penalty="elasticnet", solver="saga", class_weight="balanced",
+                solver="saga", class_weight="balanced",
                 max_iter=5000, random_state=SEED),
             "grid": {"clf__C": [0.01, 0.1, 1, 10],
                      "clf__l1_ratio": [0.2, 0.5, 0.8]},
@@ -96,7 +100,7 @@ def get_smote_specs():
     return {
         "LogReg_L2": {
             "clf": LogisticRegression(
-                penalty="l2", solver="lbfgs",
+                l1_ratio=0.0, solver="lbfgs",
                 max_iter=5000, random_state=SEED),
             "grid": {"clf__C": [0.1, 1, 10]},
         },
