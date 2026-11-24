@@ -35,7 +35,7 @@ from src import config
 from src.config import SEED, CV_FOLDS, NUM_FEATURES, TARGET
 from src.data import load_raw, clean, split
 from src.preprocessing import build_preprocessor
-from src.models import get_model_specs, get_smote_specs
+from src.models import get_model_specs
 from src.evaluation import (
     get_cv, tune_models, select_thresholds, cv_results_table,
     evaluate_test, significance_table, print_classification_reports,
@@ -213,10 +213,7 @@ def main(argv=None):
     if args.skip_smote:
         print("Skipped (--skip-smote).")
     else:
-        smote_specs = get_smote_specs()
-        if args.fast:
-            shrink_grids(smote_specs)
-        smote_df = run_smote_comparison(smote_specs, cv_results,
+        smote_df = run_smote_comparison(model_specs, cv_results,
                                         X_train, y_train, cv)
         smote_df.to_csv(config.OUT_DIR / "smote_comparison.csv", index=False)
 

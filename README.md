@@ -136,7 +136,7 @@ The full pipeline takes ~10–15 minutes and runs through:
 6. **Threshold selection** — maximises F1 on out-of-fold predictions (not default 0.5)
 7. **Test-set evaluation** — PR-AUC, ROC-AUC, Macro-F1, confusion matrices
 8. **Ablation study** — interactions vs PCA across 4 models
-9. **SMOTE comparison** — SMOTE vs `class_weight='balanced'`
+9. **SMOTE comparison** — SMOTE vs class weighting for LogReg L2, Random Forest, Gradient Boosting and XGBoost, with the same grids and CV folds as the main benchmark (SMOTE applied after scaling, before the interaction terms)
 10. **Feature importance** — logistic regression coefficients, Gini importance, permutation importance, SHAP
 11. **Statistical significance** — paired bootstrap test (3,000 resamples) on PR-AUC
 12. **17 publication-ready figures** saved to `outputs/figures/`

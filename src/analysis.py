@@ -1,16 +1,18 @@
+import json
+
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.model_selection import GridSearchCV
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, PolynomialFeatures
-from sklearn.compose import ColumnTransformer
 from sklearn.inspection import permutation_importance
 from sklearn.decomposition import PCA
 from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
 
-from .config import SEED, CAT_COL, NUM_FEATURES
-from .preprocessing import build_preprocessor, get_feature_names, interaction_steps
+from .config import SEED
+from .preprocessing import (
+    build_preprocessor, build_column_transformer, get_feature_names,
+    interaction_steps,
+)
 from .evaluation import get_cv
 from .models import fit_params
 from .reproducibility import (
@@ -74,35 +76,67 @@ def run_ablation(model_specs, X_train, y_train, cv=None):
     return pivot
 
 
-def run_smote_comparison(smote_specs, cv_results, X_train, y_train, cv=None):
+SMOTE_MODELS = ["LogReg_L2", "RandomForest", "GradientBoosting", "XGBoost"]
+
+
+def _without_class_weighting(clf):
+    """Copy of a classifier with its built-in class weighting switched off."""
+    clf = clone(clf)
+    params = clf.get_params()
+    if "class_weight" in params:
+        clf.set_params(class_weight=None)
+        return clf, "class_weight=None"
+    if "scale_pos_weight" in params:
+        clf.set_params(scale_pos_weight=1)
+        return clf, "scale_pos_weight=1"
+    return clf, "no sample_weight"
+
+
+def run_smote_comparison(model_specs, cv_results, X_train, y_train, cv=None,
+                         models=SMOTE_MODELS):
+    """SMOTE vs the class weighting used in the main benchmark.
+
+    Fair comparison: same grids and CV folds as the tuned models; the only
+    change is SMOTE oversampling (placed after scaling and before the
+    interaction terms, so synthetic rows have products consistent with their
+    factors) instead of class weights (class_weight=None, XGBoost
+    scale_pos_weight=1, Gradient Boosting without sample weights).
+    """
     cv = cv or get_cv()
 
     rows = []
-    for name, spec in smote_specs.items():
-        ct = ColumnTransformer([
-            ("cat", OneHotEncoder(drop="first", sparse_output=False),
-             [CAT_COL]),
-            ("num", StandardScaler(), NUM_FEATURES),
-        ])
+    for name in models:
+        spec = model_specs[name]
+        clf, weighting_off = _without_class_weighting(spec["clf"])
         pipe = CountingImbPipeline([
-            ("encode_scale", ct),
-            *interaction_steps(),
+            ("encode_scale", build_column_transformer()),
             ("smote", SMOTE(random_state=SEED)),
-            ("clf", spec["clf"]),
+            *interaction_steps(),
+            ("clf", clf),
         ])
         gs = GridSearchCV(pipe, spec["grid"],
                           scoring=scoring_with_convergence("average_precision"),
                           cv=cv, n_jobs=-1, refit=False)
         gs.fit(X_train, y_train)
-        smote_score, n_conv = _best_score_and_warnings(gs)
+        res = gs.cv_results_
+        i = best_index(res)
+        smote_score = float(res["mean_test_score"][i])
+        n_conv = total_convergence_warnings(res, gs.n_splits_)
 
         cw = cv_results[name]["cv_score"]
+        cw_std = cv_results[name]["summary"]["best_cv_std"]
         rows.append({
             "model": name, "class_weight_CV": cw,
             "SMOTE_CV": smote_score,
             "diff": smote_score - cw,
+            "class_weight_CV_std": cw_std,
+            "SMOTE_CV_std": float(res["std_test_score"][i]),
+            "class_weight_params": json.dumps(cv_results[name]["best_params"]),
+            "SMOTE_params": json.dumps(res["params"][i]),
+            "SMOTE_setting": weighting_off,
+            "SMOTE_convergence_warnings": n_conv,
         })
-        print(f"  {name:15s} | class_weight={cw:.4f} | "
+        print(f"  {name:17s} | class_weight={cw:.4f} | "
               f"SMOTE={smote_score:.4f} | "
               f"diff={smote_score - cw:+.4f} | "
               f"ConvergenceWarnings={n_conv}")

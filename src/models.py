@@ -124,27 +124,3 @@ def fit_params(spec, y):
     if spec.get("sample_weight") == "balanced":
         return {"clf__sample_weight": compute_sample_weight("balanced", y)}
     return {}
-
-
-def get_smote_specs():
-    return {
-        "LogReg_L2": {
-            "clf": LogisticRegression(
-                l1_ratio=0.0, solver="lbfgs",
-                max_iter=5000, random_state=SEED),
-            "grid": {"clf__C": [0.1, 1, 10]},
-        },
-        "RandomForest": {
-            "clf": RandomForestClassifier(random_state=SEED, n_jobs=-1),
-            "grid": {"clf__n_estimators": [100, 300],
-                     "clf__max_depth": [5, 10]},
-        },
-        "XGBoost": {
-            "clf": xgb.XGBClassifier(
-                eval_metric="logloss",
-                random_state=SEED, n_jobs=-1, verbosity=0),
-            "grid": {"clf__n_estimators": [100, 300],
-                     "clf__max_depth": [3, 5],
-                     "clf__learning_rate": [0.05, 0.1]},
-        },
-    }
