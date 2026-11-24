@@ -57,9 +57,11 @@ def get_model_specs(y_train=None):
             "grid": {"clf__C": [0.01, 0.1, 1, 10]},
         },
         "RBF_SVM": {
+            # probability=False (default): Platt scaling is deprecated in
+            # scikit-learn 1.9 and not needed. Like LinearSVM, the model is
+            # tuned, thresholded and evaluated on decision_function scores.
             "clf": SVC(
-                kernel="rbf", class_weight="balanced",
-                probability=True, random_state=SEED),
+                kernel="rbf", class_weight="balanced", random_state=SEED),
             "grid": {"clf__C": [0.1, 1, 10, 100],
                      "clf__gamma": ["scale", 0.01, 0.1]},
         },

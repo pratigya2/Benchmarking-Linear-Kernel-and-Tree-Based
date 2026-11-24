@@ -196,6 +196,9 @@ def main(argv=None):
     print(f"Fitted state saved to {config.OUT_DIR / '_state.joblib'}")
 
     best_name = metrics_df.index[0]
+    # Models scored by decision_function (SVMs): no probabilities
+    score_only = [n for n, e in estimators.items()
+                  if not hasattr(e, "predict_proba")]
 
     # ── 9. Ablation ───────────────────────────────────────────────────
     section(9, "ABLATION STUDY")
@@ -224,12 +227,13 @@ def main(argv=None):
     plots.plot_pr_curves(metrics_df, probas, y_test)
     plots.plot_roc_curves(metrics_df, probas, y_test)
     plots.plot_confusion_matrices(metrics_df, probas, thresholds, y_test)
-    plots.plot_threshold_tradeoff(best_name, probas, thresholds, y_test)
+    plots.plot_threshold_tradeoff(best_name, probas, thresholds, y_test,
+                                  score_only=score_only)
     print("Evaluation plots saved.")
 
     # ── 12. Calibration ───────────────────────────────────────────────
     section(12, "CALIBRATION ANALYSIS")
-    plots.plot_calibration(probas, y_test)
+    plots.plot_calibration(probas, y_test, score_only=score_only)
     print("Calibration plot saved.")
 
     # ── 13. Feature importance ────────────────────────────────────────

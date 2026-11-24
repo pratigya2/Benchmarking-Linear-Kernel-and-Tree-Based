@@ -171,8 +171,13 @@ def plot_confusion_matrices(metrics_df, probas, thresholds, y_test, top_n=4):
     _save(fig, "09_confusion_matrices.png")
 
 
-def plot_threshold_tradeoff(best_name, probas, thresholds, y_test):
+def plot_threshold_tradeoff(best_name, probas, thresholds, y_test,
+                            score_only=()):
     if best_name not in probas:
+        return
+    if best_name in score_only:
+        print(f"Threshold trade-off plot skipped: {best_name} outputs "
+              f"decision_function scores, not probabilities in [0, 1].")
         return
     proba = probas[best_name]
     threshs = np.linspace(0.01, 0.99, 200)
@@ -204,10 +209,17 @@ def plot_threshold_tradeoff(best_name, probas, thresholds, y_test):
 
 def plot_calibration(probas, y_test,
                      models=("LogReg_L2", "RandomForest",
-                             "GradientBoosting", "XGBoost")):
+                             "GradientBoosting", "XGBoost"),
+                     score_only=()):
+    """Reliability diagram. Models in ``score_only`` output decision_function
+    scores (not probabilities) and are excluded."""
+    excluded = [m for m in score_only if m in probas]
+    if excluded:
+        print(f"Calibration plot excludes {', '.join(excluded)}: "
+              f"decision_function scores are not probabilities.")
     fig, ax = plt.subplots(figsize=(8, 6))
     for name in models:
-        if name not in probas:
+        if name not in probas or name in score_only:
             continue
         frac, mean_pred = calibration_curve(
             y_test, probas[name], n_bins=10, strategy="uniform")
