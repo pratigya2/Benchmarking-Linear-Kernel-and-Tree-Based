@@ -75,10 +75,20 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 
 ## Setup
 
-**Requirements:** Python 3.10+
+**Requirements:** Python 3.12 (the version the reference results were produced with). Exact package versions are pinned in `requirements.txt`.
+
+**macOS prerequisite:** XGBoost needs the OpenMP runtime, which is not bundled with the pip wheel. Without it, `import xgboost` fails with `Library not loaded: @rpath/libomp.dylib`.
 
 ```bash
-pip install scikit-learn numpy pandas matplotlib seaborn imbalanced-learn xgboost shap
+brew install libomp
+```
+
+**Create the environment** (conda-forge channel; any Python 3.12 virtual environment works as well):
+
+```bash
+conda create -n aliens-ml -c conda-forge --override-channels python=3.12 -y
+conda activate aliens-ml
+pip install -r requirements.txt
 ```
 
 **Download the dataset:**
