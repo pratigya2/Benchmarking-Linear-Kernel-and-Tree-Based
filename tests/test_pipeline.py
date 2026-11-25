@@ -68,11 +68,14 @@ def test_preprocessor_fitted_on_train_only(df):
     assert not np.allclose(scaler.mean_, X_te[num_cols].mean().to_numpy())
 
 
-@pytest.mark.xfail(strict=True, reason="fixed in Phase 2.2")
 def test_no_constant_columns_after_preprocessing(df):
     X_train, _, _, _ = split(df)
-    Xt = build_preprocessor(with_interactions=True).fit_transform(X_train)
+    pre = build_preprocessor(with_interactions=True).fit(X_train)
+    Xt = pre.transform(X_train)
     assert np.all(Xt.std(axis=0) > 0)
+    names = pre.get_feature_names_out()
+    assert len(names) == Xt.shape[1] == 27  # 7 base + 21 products - 1 constant
+    assert "Type_L Type_M" not in names
 
 
 def test_fast_run_exits_cleanly(tmp_path):

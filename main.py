@@ -35,7 +35,7 @@ from src import config
 from src.config import SEED, CV_FOLDS, NUM_FEATURES, TARGET
 from src.data import load_raw, clean, split
 from src.preprocessing import build_preprocessor
-from src.models import get_model_specs, get_smote_specs
+from src.models import get_model_specs
 from src.evaluation import (
     get_cv, tune_models, select_thresholds, cv_results_table,
     evaluate_test, significance_table, print_classification_reports,
@@ -47,8 +47,6 @@ from src.analysis import (
 )
 from src import plots
 from src.reproducibility import start_log, RunMetadata
-
-np.random.seed(SEED)
 
 # --fast smoke-test settings (never used for reported results)
 FAST_N_ROWS = 2000
@@ -159,7 +157,8 @@ def main(argv=None):
     section(7, "THRESHOLD SELECTION")
     threshold_warnings = {}
     thresholds = select_thresholds(estimators, X_train, y_train, cv,
-                                   warning_counts=threshold_warnings)
+                                   warning_counts=threshold_warnings,
+                                   model_specs=model_specs)
 
     cv_table = cv_results_table(cv_results, threshold_warnings)
     cv_table.to_csv(config.OUT_DIR / "cv_results.csv", index=False)
@@ -195,26 +194,30 @@ def main(argv=None):
     print(f"Fitted state saved to {config.OUT_DIR / '_state.joblib'}")
 
     best_name = metrics_df.index[0]
+    # Models scored by decision_function (SVMs): no probabilities
+    score_only = [n for n, e in estimators.items()
+                  if not hasattr(e, "predict_proba")]
 
     # ── 9. Ablation ───────────────────────────────────────────────────
     section(9, "ABLATION STUDY")
     if args.skip_ablation:
         print("Skipped (--skip-ablation).")
     else:
-        abl_pivot = run_ablation(model_specs, X_train, y_train, cv)
-        print("\n" + abl_pivot.round(4).to_string())
+        abl_pivot, abl_std, abl_long = run_ablation(
+            model_specs, X_train, y_train, cv)
+        print("\nMean CV PR-AUC:\n" + abl_pivot.round(4).to_string())
+        print("\nStd over folds:\n" + abl_std.round(4).to_string())
         abl_pivot.to_csv(config.OUT_DIR / "ablation_results.csv")
-        plots.plot_ablation_heatmap(abl_pivot)
+        abl_std.to_csv(config.OUT_DIR / "ablation_results_std.csv")
+        abl_long.to_csv(config.OUT_DIR / "ablation_results_long.csv", index=False)
+        plots.plot_ablation_heatmap(abl_pivot, abl_std)
 
     # ── 10. SMOTE comparison ──────────────────────────────────────────
     section(10, "SMOTE vs CLASS_WEIGHT")
     if args.skip_smote:
         print("Skipped (--skip-smote).")
     else:
-        smote_specs = get_smote_specs()
-        if args.fast:
-            shrink_grids(smote_specs)
-        smote_df = run_smote_comparison(smote_specs, cv_results,
+        smote_df = run_smote_comparison(model_specs, cv_results,
                                         X_train, y_train, cv)
         smote_df.to_csv(config.OUT_DIR / "smote_comparison.csv", index=False)
 
@@ -223,12 +226,13 @@ def main(argv=None):
     plots.plot_pr_curves(metrics_df, probas, y_test)
     plots.plot_roc_curves(metrics_df, probas, y_test)
     plots.plot_confusion_matrices(metrics_df, probas, thresholds, y_test)
-    plots.plot_threshold_tradeoff(best_name, probas, thresholds, y_test)
+    plots.plot_threshold_tradeoff(best_name, probas, thresholds, y_test,
+                                  score_only=score_only)
     print("Evaluation plots saved.")
 
     # ── 12. Calibration ───────────────────────────────────────────────
     section(12, "CALIBRATION ANALYSIS")
-    plots.plot_calibration(probas, y_test)
+    plots.plot_calibration(probas, y_test, score_only=score_only)
     print("Calibration plot saved.")
 
     # ── 13. Feature importance ────────────────────────────────────────
@@ -261,8 +265,9 @@ def main(argv=None):
 
     # ── 14. Statistical significance ──────────────────────────────────
     section(14, "STATISTICAL SIGNIFICANCE")
-    significance_table(metrics_df, probas, y_test,
-                       n_boot=FAST_N_BOOT if args.fast else 3000)
+    sig_df = significance_table(metrics_df, probas, y_test,
+                                n_boot=FAST_N_BOOT if args.fast else 2000)
+    sig_df.to_csv(config.OUT_DIR / "significance.csv", index=False)
 
     # ── 15. Final ranking ─────────────────────────────────────────────
     section(15, "FINAL MODEL RANKING")

@@ -1,28 +1,24 @@
+import json
+
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.model_selection import GridSearchCV
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, PolynomialFeatures
-from sklearn.compose import ColumnTransformer
 from sklearn.inspection import permutation_importance
 from sklearn.decomposition import PCA
 from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
 
-from .config import SEED, CAT_COL, NUM_FEATURES
-from .preprocessing import build_preprocessor, get_feature_names
+from .config import SEED
+from .preprocessing import (
+    build_preprocessor, build_column_transformer, get_feature_names,
+    interaction_steps,
+)
 from .evaluation import get_cv
+from .models import fit_params
 from .reproducibility import (
     CountingPipeline, CountingImbPipeline, scoring_with_convergence,
     total_convergence_warnings, best_index,
 )
-
-
-def _best_score_and_warnings(gs):
-    """Best mean CV score (GridSearchCV's own rule) and ConvergenceWarnings."""
-    res = gs.cv_results_
-    score = float(res["mean_test_score"][best_index(res)])
-    return score, total_convergence_warnings(res, gs.n_splits_)
 
 
 def pca_variance_analysis(X_train):
@@ -34,7 +30,16 @@ def pca_variance_analysis(X_train):
     return pca, cumvar, n95, X_transformed.shape[1]
 
 
+ABLATION_CONFIGS = ["baseline", "interactions", "PCA_only", "interactions+PCA"]
+
+
 def run_ablation(model_specs, X_train, y_train, cv=None):
+    """Interactions / PCA ablation for every model (each config re-tuned).
+
+    Returns (mean_pivot, std_pivot, long_df): best mean CV PR-AUC and its
+    std over folds per config x model, and one row per config/model with
+    the selected parameters and ConvergenceWarnings.
+    """
     cv = cv or get_cv()
     configs = [
         ("baseline",          False, False),
@@ -43,67 +48,99 @@ def run_ablation(model_specs, X_train, y_train, cv=None):
         ("interactions+PCA",  True,  True),
     ]
 
-    subset_keys = ["LogReg_L2", "RBF_SVM", "RandomForest", "XGBoost"]
-    subset = {k: model_specs[k] for k in subset_keys if k in model_specs}
-
     rows = []
     for config_name, use_int, use_pca in configs:
         pre = build_preprocessor(with_interactions=use_int,
                                  with_pca=use_pca, n_components=0.95)
-        for name, spec in subset.items():
+        for name, spec in model_specs.items():
             pipe = CountingPipeline([("pre", pre), ("clf", spec["clf"])])
-            scoring = ("roc_auc" if spec.get("no_proba")
-                       else "average_precision")
+            scoring = "average_precision"
             gs = GridSearchCV(pipe, spec["grid"],
                               scoring=scoring_with_convergence(scoring),
                               cv=cv, n_jobs=-1, refit=False)
-            gs.fit(X_train, y_train)
-            best_score, n_conv = _best_score_and_warnings(gs)
+            gs.fit(X_train, y_train, **fit_params(spec, y_train))
+            res = gs.cv_results_
+            i = best_index(res)
+            mean, std = float(res["mean_test_score"][i]), float(res["std_test_score"][i])
+            n_conv = total_convergence_warnings(res, gs.n_splits_)
             rows.append({
                 "config": config_name, "model": name,
-                "cv_score": best_score, "metric": scoring,
+                "cv_mean": mean, "cv_std": std, "metric": scoring,
+                "best_params": json.dumps(res["params"][i]),
+                "convergence_warnings": n_conv,
             })
-            print(f"  {config_name:20s} | {name:15s} | "
-                  f"{scoring}={best_score:.4f} | "
+            print(f"  {config_name:20s} | {name:17s} | "
+                  f"{scoring}={mean:.4f} +/- {std:.4f} | "
                   f"ConvergenceWarnings={n_conv}")
 
-    df = pd.DataFrame(rows)
-    pivot = df.pivot(index="config", columns="model", values="cv_score")
-    pivot = pivot.loc[["baseline", "interactions",
-                       "PCA_only", "interactions+PCA"]]
-    return pivot
+    long_df = pd.DataFrame(rows)
+    models = list(model_specs)
+    pivots = [long_df.pivot(index="config", columns="model", values=v)
+              .loc[ABLATION_CONFIGS, models] for v in ("cv_mean", "cv_std")]
+    return pivots[0], pivots[1], long_df
 
 
-def run_smote_comparison(smote_specs, cv_results, X_train, y_train, cv=None):
+SMOTE_MODELS = ["LogReg_L2", "RandomForest", "GradientBoosting", "XGBoost"]
+
+
+def _without_class_weighting(clf):
+    """Copy of a classifier with its built-in class weighting switched off."""
+    clf = clone(clf)
+    params = clf.get_params()
+    if "class_weight" in params:
+        clf.set_params(class_weight=None)
+        return clf, "class_weight=None"
+    if "scale_pos_weight" in params:
+        clf.set_params(scale_pos_weight=1)
+        return clf, "scale_pos_weight=1"
+    return clf, "no sample_weight"
+
+
+def run_smote_comparison(model_specs, cv_results, X_train, y_train, cv=None,
+                         models=SMOTE_MODELS):
+    """SMOTE vs the class weighting used in the main benchmark.
+
+    Fair comparison: same grids and CV folds as the tuned models; the only
+    change is SMOTE oversampling (placed after scaling and before the
+    interaction terms, so synthetic rows have products consistent with their
+    factors) instead of class weights (class_weight=None, XGBoost
+    scale_pos_weight=1, Gradient Boosting without sample weights).
+    """
     cv = cv or get_cv()
 
     rows = []
-    for name, spec in smote_specs.items():
-        ct = ColumnTransformer([
-            ("cat", OneHotEncoder(drop="first", sparse_output=False),
-             [CAT_COL]),
-            ("num", StandardScaler(), NUM_FEATURES),
-        ])
+    for name in models:
+        spec = model_specs[name]
+        clf, weighting_off = _without_class_weighting(spec["clf"])
         pipe = CountingImbPipeline([
-            ("encode_scale", ct),
-            ("interactions", PolynomialFeatures(
-                degree=2, interaction_only=True, include_bias=False)),
+            ("encode_scale", build_column_transformer()),
             ("smote", SMOTE(random_state=SEED)),
-            ("clf", spec["clf"]),
+            *interaction_steps(),
+            ("clf", clf),
         ])
         gs = GridSearchCV(pipe, spec["grid"],
                           scoring=scoring_with_convergence("average_precision"),
                           cv=cv, n_jobs=-1, refit=False)
         gs.fit(X_train, y_train)
-        smote_score, n_conv = _best_score_and_warnings(gs)
+        res = gs.cv_results_
+        i = best_index(res)
+        smote_score = float(res["mean_test_score"][i])
+        n_conv = total_convergence_warnings(res, gs.n_splits_)
 
         cw = cv_results[name]["cv_score"]
+        cw_std = cv_results[name]["summary"]["best_cv_std"]
         rows.append({
             "model": name, "class_weight_CV": cw,
             "SMOTE_CV": smote_score,
             "diff": smote_score - cw,
+            "class_weight_CV_std": cw_std,
+            "SMOTE_CV_std": float(res["std_test_score"][i]),
+            "class_weight_params": json.dumps(cv_results[name]["best_params"]),
+            "SMOTE_params": json.dumps(res["params"][i]),
+            "SMOTE_setting": weighting_off,
+            "SMOTE_convergence_warnings": n_conv,
         })
-        print(f"  {name:15s} | class_weight={cw:.4f} | "
+        print(f"  {name:17s} | class_weight={cw:.4f} | "
               f"SMOTE={smote_score:.4f} | "
               f"diff={smote_score - cw:+.4f} | "
               f"ConvergenceWarnings={n_conv}")
@@ -162,6 +199,9 @@ def shap_analysis(estimator, X_test):
     feature_names = get_feature_names(pre)
     X_pre = pd.DataFrame(pre.transform(X_test), columns=feature_names)
 
+    # The models were fitted on arrays; pass an array too. (XGBoost rejects
+    # DataFrame column names containing "[", "]" or "<", e.g. "Torque [Nm]".)
+    # Feature names are kept in X_pre for the plots.
     explainer = shap.TreeExplainer(clf)
-    shap_values = explainer.shap_values(X_pre)
+    shap_values = explainer.shap_values(X_pre.to_numpy())
     return shap_values, X_pre
