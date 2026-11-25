@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.patches import Patch
 from sklearn.metrics import (
     precision_recall_curve, roc_curve,
     confusion_matrix, ConfusionMatrixDisplay,
@@ -12,7 +13,7 @@ from sklearn.calibration import calibration_curve
 from . import config
 from .config import TARGET, NUM_FEATURES, PHYSICS_PAIRS
 
-DPI = 150
+DPI = 300
 SAVE_KW = dict(dpi=DPI, bbox_inches="tight")
 
 
@@ -318,3 +319,334 @@ def plot_model_ranking(metrics_df, y_test):
     plt.suptitle("Test set - multi-metric comparison", fontsize=13, y=1.02)
     plt.tight_layout()
     _save(fig, "17_multi_metric_comparison.png")
+
+
+# ── Phase 3 analyses ──────────────────────────────────────────────────
+
+def plot_failure_modes(noise_df):
+    """Failure-mode flag counts split by label, plus label-consistency counts."""
+    modes = noise_df[noise_df["group"] == "mode"].set_index("item")
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8),
+                             gridspec_kw={"width_ratios": [1.4, 1]})
+
+    x = np.arange(len(modes))
+    pos, neg = modes["machine_failure_1"], modes["machine_failure_0"]
+    axes[0].bar(x, pos, color="#DD8452", edgecolor="black",
+                label="Machine failure = 1")
+    axes[0].bar(x, neg, bottom=pos, color="#4C72B0", edgecolor="black",
+                label="Machine failure = 0 (label noise)")
+    for i, (p, n) in enumerate(zip(pos, neg)):
+        axes[0].text(i, p + n + 1.5, f"{p + n}" + (f"\n({n} with label 0)" if n else ""),
+                     ha="center", va="bottom", fontsize=8)
+    axes[0].set_xticks(x, modes.index)
+    axes[0].set_xlabel("Failure mode flag")
+    axes[0].set_ylabel("Number of rows (count)")
+    axes[0].set_ylim(0, (pos + neg).max() * 1.25)
+    n_total = int(noise_df.attrs.get("n_rows", 0))
+    axes[0].set_title(f"Failure-mode flags (all {n_total:,} rows)")
+    axes[0].legend(loc="upper left", fontsize=8)
+
+    cons = noise_df[noise_df["group"] == "consistency"].set_index("item")
+    labels = {
+        "failure_without_mode_flag": "Failure,\nno mode flag",
+        "mode_flag_without_failure": "Mode flag,\nno failure",
+        "multiple_mode_flags": "Two or more\nmode flags",
+    }
+    vals = cons["n_rows"].reindex(list(labels))
+    bars = axes[1].bar([labels[k] for k in labels], vals,
+                       color=["#C44E52", "#8172B2", "#55A868"], edgecolor="black")
+    for b, v in zip(bars, vals):
+        axes[1].text(b.get_x() + b.get_width() / 2, v + 0.4, str(int(v)),
+                     ha="center", va="bottom", fontweight="bold")
+    axes[1].set_xlabel("Label consistency check")
+    axes[1].set_ylabel("Number of rows (count)")
+    axes[1].set_ylim(0, vals.max() * 1.25)
+    axes[1].set_title("Label consistency between target and mode flags")
+    axes[1].legend(handles=[
+        Patch(facecolor="#C44E52", edgecolor="black", label="Target = 1 but no mode flag"),
+        Patch(facecolor="#8172B2", edgecolor="black", label="Mode flag but target = 0"),
+        Patch(facecolor="#55A868", edgecolor="black", label="Row has several modes"),
+    ], fontsize=8, loc="upper left")
+
+    rnf = int(modes.loc["RNF", "n_rows"])
+    fig.text(0.01, -0.03,
+             f"Note: the UCI documentation lists RNF as occurring 5 times; "
+             f"this CSV contains {rnf} RNF flags.", fontsize=8, style="italic")
+    plt.tight_layout()
+    _save(fig, "01b_failure_modes.png")
+
+
+def plot_logreg_coef_comparison(coef_df):
+    """Grouped horizontal bars: L2 / L1 / ElasticNet coefficients."""
+    models = list(coef_df.columns)
+    colors = {"LogReg_L2": "#4C72B0", "LogReg_L1": "#DD8452",
+              "LogReg_ElasticNet": "#55A868"}
+    n = len(coef_df)
+    y = np.arange(n)
+    h = 0.8 / len(models)
+    fig, ax = plt.subplots(figsize=(10, max(6, 0.32 * n)))
+    for i, m in enumerate(models):
+        n_zero = int((coef_df[m] == 0).sum())
+        ax.barh(y + (i - (len(models) - 1) / 2) * h, coef_df[m], height=h,
+                color=colors.get(m), edgecolor="none",
+                label=f"{m} ({n_zero} of {n} coefficients exactly 0)")
+    ax.set_yticks(y, coef_df.index, fontsize=8)
+    ax.invert_yaxis()
+    ax.axvline(0, color="black", lw=0.8)
+    ax.set_xlabel("Coefficient (change in log-odds per 1 SD of a standardised "
+                  "feature; per unit for Type dummies)")
+    ax.set_ylabel("Feature (sorted by |L2 coefficient|)")
+    ax.set_title("Logistic regression coefficients at the CV-selected C")
+    ax.legend(loc="lower right", fontsize=8)
+    plt.tight_layout()
+    _save(fig, "12b_logreg_coef_comparison.png")
+
+
+def plot_l1_path(coef_df, summary_df, top_n=8):
+    """L1 regularisation path and number of non-zero coefficients vs C."""
+    Cs = coef_df.index.to_numpy()
+    sel = summary_df.loc[summary_df["cv_selected"], "C"].iloc[0]
+    top = coef_df.iloc[-1].abs().sort_values(ascending=False).index[:top_n]
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5),
+                             gridspec_kw={"width_ratios": [1.6, 1]})
+    palette = sns.color_palette("tab10", top_n)
+    for col in coef_df.columns:
+        if col not in top:
+            axes[0].plot(Cs, coef_df[col], color="0.75", lw=0.8)
+    axes[0].plot([], [], color="0.75", lw=0.8, label="Other features")
+    for c, col in zip(palette, top):
+        axes[0].plot(Cs, coef_df[col], color=c, lw=1.8, label=col)
+    for ax in axes:
+        ax.set_xscale("log")
+        ax.axvline(sel, color="black", ls="--", lw=1)
+        ax.set_xlabel("Inverse regularisation strength C (log scale, unitless)")
+    axes[0].plot([], [], color="black", ls="--", label=f"CV-selected C = {sel:g}")
+    axes[0].axhline(0, color="black", lw=0.6)
+    axes[0].set_ylabel("Coefficient (log-odds per 1 SD)")
+    axes[0].set_title(f"L1 logistic regression path (top {top_n} features "
+                      f"by |coef| at C = {Cs[-1]:g} highlighted)")
+    axes[0].legend(fontsize=7, loc="upper left", ncol=1)
+
+    axes[1].plot(summary_df["C"], summary_df["n_nonzero"], "o-",
+                 color="#DD8452", label="Non-zero coefficients")
+    axes[1].axhline(summary_df["n_features"].iloc[0], color="0.5", ls=":",
+                    label=f"All features ({summary_df['n_features'].iloc[0]})")
+    axes[1].plot([], [], color="black", ls="--", label=f"CV-selected C = {sel:g}")
+    axes[1].set_ylabel("Number of non-zero coefficients (count)")
+    axes[1].set_title("Sparsity along the L1 path")
+    axes[1].legend(fontsize=8, loc="lower right")
+    plt.tight_layout()
+    _save(fig, "12c_l1_path.png")
+
+
+def plot_confusion_all(metrics_df, probas, thresholds, y_test, score_only=()):
+    """Confusion matrices of all models at their CV-selected thresholds.
+
+    Cell colour is the row-normalised rate (fraction of the true class);
+    the annotation gives the count and that rate.
+    """
+    names = list(metrics_df.index)
+    ncols = 4
+    nrows = int(np.ceil(len(names) / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4.4 * ncols, 3.9 * nrows),
+                             layout="constrained")
+    axes = axes.ravel()
+    y = np.asarray(y_test)
+    im = None
+    for ax, name in zip(axes, names):
+        tau = thresholds[name]
+        cm = confusion_matrix(y, (probas[name] >= tau).astype(int), labels=[0, 1])
+        rate = cm / cm.sum(axis=1, keepdims=True)
+        im = ax.imshow(rate, cmap="Blues", vmin=0, vmax=1)
+        for i in range(2):
+            for j in range(2):
+                ax.text(j, i, f"{cm[i, j]}\n({rate[i, j]:.1%})", ha="center",
+                        va="center", fontsize=9,
+                        color="white" if rate[i, j] > 0.6 else "black")
+        ax.set_xticks([0, 1], ["Normal", "Failure"])
+        ax.set_yticks([0, 1], ["Normal", "Failure"], rotation=90, va="center")
+        ax.set_xlabel("Predicted class")
+        ax.set_ylabel("True class")
+        scale = "decision score" if name in score_only else "probability"
+        ax.set_title(f"{name}\nthreshold {tau:.3f} ({scale})", fontsize=9)
+    for ax in axes[len(names):]:
+        ax.axis("off")
+    cbar = fig.colorbar(im, ax=axes.tolist(), shrink=0.6, pad=0.02)
+    cbar.set_label("Fraction of the true class (row-normalised)")
+    fig.suptitle("Confusion matrices of all models on the test set at the "
+                 "CV-selected threshold (ordered by test PR-AUC)", fontsize=13)
+    _save(fig, "09b_confusion_all.png")
+
+
+def plot_recall_by_failure_mode(err_df, modes):
+    """Heatmap of recall per failure mode (models x modes)."""
+    df = err_df.set_index("model")
+    rec = df[[f"recall_{m}" for m in modes]].astype(float)
+    rec.columns = modes
+    annot = rec.copy().astype(object)
+    for m in modes:
+        for name in rec.index:
+            n = int(df.loc[name, f"n_{m}"])
+            hit = n - int(df.loc[name, f"fn_{m}"])
+            r = rec.loc[name, m]
+            annot.loc[name, m] = "n/a" if n == 0 else f"{r:.2f}\n({hit}/{n})"
+    fig, ax = plt.subplots(figsize=(10, 7))
+    sns.heatmap(rec, annot=annot.values, fmt="", cmap="RdYlGn", vmin=0, vmax=1,
+                linewidths=0.5, ax=ax, annot_kws={"fontsize": 8},
+                cbar_kws={"label": "Recall (fraction of failures of that mode "
+                                   "detected)"})
+    for j, m in enumerate(modes):
+        for i, name in enumerate(rec.index):
+            if np.isnan(rec.loc[name, m]):
+                ax.add_patch(plt.Rectangle((j, i), 1, 1, color="0.9"))
+                ax.text(j + 0.5, i + 0.5, "n/a", ha="center", va="center",
+                        fontsize=8, color="0.4")
+    n_cols = [f"{m}\n(n = {int(df[f'n_{m}'].iloc[0])})" for m in modes]
+    ax.set_xticklabels(n_cols, rotation=0)
+    ax.set_xlabel("Failure mode of the test failures "
+                  "(multi-mode rows count in each mode)")
+    ax.set_ylabel("Model (ordered by test PR-AUC)")
+    ax.set_title("Recall by failure mode on the test set at the CV-selected "
+                 "threshold\n(n/a: no test failure with that mode)")
+    plt.tight_layout()
+    _save(fig, "18_recall_by_failure_mode.png")
+
+
+def plot_errors_on_physics(raw, preds_by_model, osf_limits, pwf_band):
+    """Test set on the OSF and PWF rule planes, one row per model.
+
+    raw: raw test rows (features + target). preds_by_model: {name: 0/1}.
+    """
+    y = raw[TARGET].to_numpy()
+    wear = raw["Tool wear [min]"].to_numpy()
+    torque = raw["Torque [Nm]"].to_numpy()
+    speed = raw["Rotational speed [rpm]"].to_numpy()
+    names = list(preds_by_model)
+    fig, axes = plt.subplots(len(names), 2, figsize=(14, 6.6 * len(names)),
+                             squeeze=False)
+    styles = [
+        ("TN", dict(c="0.8", s=6, marker=".", label="Normal, predicted normal")),
+        ("FP", dict(c="#E69F00", s=28, marker="^", label="False positive")),
+        ("TP", dict(c="#0072B2", s=26, marker="o", label="True positive (failure detected)")),
+        ("FN", dict(c="#D55E00", s=70, marker="X", edgecolors="black",
+                    linewidths=0.5, label="False negative (missed failure)")),
+    ]
+    wear_grid = np.linspace(max(wear.min(), 1), wear.max(), 300)
+    speed_grid = np.linspace(speed.min(), speed.max(), 300)
+    omega = speed_grid * 2 * np.pi / 60
+    for row, name in enumerate(names):
+        pred = preds_by_model[name]
+        groups = {"TN": (y == 0) & (pred == 0), "FP": (y == 0) & (pred == 1),
+                  "TP": (y == 1) & (pred == 1), "FN": (y == 1) & (pred == 0)}
+        ax_osf, ax_pwf = axes[row]
+        for key, kw in styles:
+            g = groups[key]
+            lab = f"{kw['label']} ({int(g.sum())})"
+            ax_osf.scatter(wear[g], torque[g], **{**kw, "label": lab})
+            ax_pwf.scatter(speed[g], torque[g], **{**kw, "label": lab})
+        for (ptype, limit), ls in zip(osf_limits.items(), ["-", "--", ":"]):
+            ax_osf.plot(wear_grid, limit / wear_grid, color="black", ls=ls, lw=1,
+                        label=f"OSF limit, type {ptype}: wear x torque = "
+                              f"{limit:,} min·Nm")
+        ax_osf.set_xlim(0, wear.max() * 1.03)
+        ax_osf.set_ylim(0, torque.max() * 1.05)
+        ax_osf.set_xlabel("Tool wear [min]")
+        ax_osf.set_ylabel("Torque [Nm]")
+        ax_osf.set_title(f"{name}: overstrain plane (OSF rule)")
+        ax_osf.legend(fontsize=7, loc="upper center", ncol=2,
+                      bbox_to_anchor=(0.5, -0.12))
+
+        for p, ls in zip(pwf_band, ["--", "-"]):
+            ax_pwf.plot(speed_grid, p / omega, color="black", ls=ls, lw=1,
+                        label=f"PWF band edge: power = {p:,} W")
+        ax_pwf.set_ylim(0, torque.max() * 1.05)
+        ax_pwf.set_xlabel("Rotational speed [rpm]")
+        ax_pwf.set_ylabel("Torque [Nm]")
+        ax_pwf.set_title(f"{name}: power plane (PWF rule, failure outside the band)")
+        ax_pwf.legend(fontsize=7, loc="upper center", ncol=2,
+                      bbox_to_anchor=(0.5, -0.12))
+    fig.suptitle("Where the models miss failures: test set on the "
+                 "failure-rule planes", fontsize=13)
+    plt.tight_layout()
+    _save(fig, "19_errors_on_physics.png")
+
+
+FAMILY_COLORS = {"Linear": "#4C72B0", "Kernel / instance-based": "#DD8452",
+                 "Probabilistic": "#8172B2", "Tree-based": "#55A868"}
+
+
+def plot_importance_by_family(perm_df):
+    """Normalised raw-variable permutation importance, grouped by family."""
+    variables = (perm_df.groupby("variable")["importance_normalised"].mean()
+                 .sort_values(ascending=False).index.tolist())
+    families = [f for f in FAMILY_COLORS if f in set(perm_df["family"])]
+    width = 0.8 / len(families)
+    x = np.arange(len(variables))
+    fig, ax = plt.subplots(figsize=(13, 5.5))
+    for k, fam in enumerate(families):
+        sub = perm_df[perm_df["family"] == fam]
+        means = sub.groupby("variable")["importance_normalised"].mean().reindex(variables)
+        n_models = sub["model"].nunique()
+        off = (k - (len(families) - 1) / 2) * width
+        ax.bar(x + off, means, width, color=FAMILY_COLORS[fam], alpha=0.85,
+               edgecolor="black", label=f"{fam} (mean of {n_models} model"
+                                        f"{'s' if n_models > 1 else ''})")
+        for _, g in sub.groupby("model"):
+            vals = g.set_index("variable")["importance_normalised"].reindex(variables)
+            ax.scatter(x + off, vals, color="black", s=10, zorder=3)
+    ax.scatter([], [], color="black", s=10, label="Individual model")
+    ax.set_xticks(x, variables)
+    ax.set_xlabel("Original input variable (Type permuted as one variable)")
+    ax.set_ylabel("Normalised permutation importance\n"
+                  "(share of the model's total PR-AUC drop, unitless)")
+    ax.set_title("Permutation importance of the raw variables on the test set, "
+                 "by model family")
+    ax.legend(fontsize=8)
+    plt.tight_layout()
+    _save(fig, "20_importance_by_family.png")
+
+
+def plot_importance_agreement(rho, families):
+    """Spearman correlation matrix between models' importance rankings."""
+    fig, ax = plt.subplots(figsize=(11, 9.5), layout="constrained")
+    sns.heatmap(rho, annot=True, fmt=".2f", cmap="RdBu_r", vmin=-1, vmax=1,
+                square=True, linewidths=0.5, ax=ax, annot_kws={"fontsize": 8},
+                cbar_kws={"label": "Spearman rank correlation (unitless)"})
+    for lab in ax.get_xticklabels() + ax.get_yticklabels():
+        lab.set_color(FAMILY_COLORS.get(families.get(lab.get_text()), "black"))
+    # family boundaries
+    fams = [families[m] for m in rho.index]
+    for i in range(1, len(fams)):
+        if fams[i] != fams[i - 1]:
+            ax.axhline(i, color="black", lw=1.5)
+            ax.axvline(i, color="black", lw=1.5)
+    ax.legend(handles=[Patch(color=c, label=f) for f, c in FAMILY_COLORS.items()],
+              title="Model family (label colour)", fontsize=8, ncol=4,
+              loc="upper center", bbox_to_anchor=(0.5, -0.25))
+    ax.set_xlabel("Model")
+    ax.set_ylabel("Model")
+    fig.suptitle("Agreement of raw-variable importance rankings between "
+                 "models\n(Spearman over the 6 input variables, test-set "
+                 "permutation importance)", fontsize=12)
+    _save(fig, "21_importance_agreement.png")
+
+
+def plot_impurity_importance(imp_df, top_n=15):
+    """Built-in importances of the tree models, top features per model."""
+    models = list(dict.fromkeys(imp_df["model"]))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 11))
+    for ax, name in zip(axes.ravel(), models):
+        sub = imp_df[imp_df["model"] == name].nlargest(top_n, "importance")
+        kind = sub["type"].iloc[0]
+        ax.barh(range(len(sub)), sub["importance"], color="#55A868",
+                edgecolor="black", label=f"{kind} (normalised)")
+        ax.set_yticks(range(len(sub)), sub["feature"], fontsize=8)
+        ax.invert_yaxis()
+        ax.set_xlabel(f"Importance: normalised {kind} (sums to 1, unitless)")
+        ax.set_ylabel("Pipeline feature")
+        ax.set_title(f"{name}: top {top_n} features")
+        ax.legend(fontsize=8, loc="lower right")
+    fig.suptitle("Built-in (impurity / gain) importance of the tree models, "
+                 "computed on the training fit", fontsize=13)
+    plt.tight_layout()
+    _save(fig, "13b_gini_importance.png")

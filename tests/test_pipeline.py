@@ -1,7 +1,8 @@
 """Fast checks of the data handling, the split and the leakage guarantees.
 
 Run with ``pytest`` from the repository root. All tests except the smoke
-run take a few seconds; the smoke run (``main.py --fast``) takes ~20 s.
+runs take a few seconds; the smoke run (``main.py --fast``, shared by the
+last two tests) takes ~25 s.
 """
 
 import subprocess
@@ -20,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from src.config import DATA_PATH, ID_COLS, LEAK_COLS, SEED, TARGET  # noqa: E402
 from src.data import load_raw, clean, split  # noqa: E402
 from src.preprocessing import build_preprocessor  # noqa: E402
+from src.error_analysis import mode_masks  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     not DATA_PATH.exists(), reason=f"dataset not found at {DATA_PATH}")
@@ -78,11 +80,49 @@ def test_no_constant_columns_after_preprocessing(df):
     assert "Type_L Type_M" not in names
 
 
-def test_fast_run_exits_cleanly(tmp_path):
+def test_failure_mode_masks_match_label_noise_facts():
+    masks = mode_masks(load_raw())
+    counts = {m: int(v.sum()) for m, v in masks.items()}
+    # failures per mode (multi-mode rows count in each); RNF: 1 of 19 flags
+    assert counts == {"TWF": 46, "HDF": 115, "PWF": 95, "OSF": 98,
+                      "RNF": 1, "no_flag": 9}
+
+
+PHASE3_TABLES = [
+    "label_noise.csv", "logreg_coefficients.csv", "l1_path.csv",
+    "nb_diagnosis.csv", "error_by_failure_mode.csv",
+    "best_model_false_negatives.csv", "permutation_raw.csv",
+    "importance_spearman.csv", "failure_rules_vs_importance.csv",
+]
+
+
+@pytest.fixture(scope="module")
+def fast_run(tmp_path_factory):
+    out = tmp_path_factory.mktemp("fast")
     result = subprocess.run(
-        [sys.executable, "main.py", "--fast", "--out-dir", str(tmp_path)],
+        [sys.executable, "main.py", "--fast", "--out-dir", str(out)],
         cwd=ROOT, capture_output=True, text=True, timeout=300)
+    return out, result
+
+
+def test_fast_run_exits_cleanly(fast_run):
+    out, result = fast_run
     assert result.returncode == 0, result.stderr[-2000:]
     for name in ["test_metrics.csv", "cv_results.csv", "run_metadata.json",
                  "run.log", "_state.joblib"]:
-        assert (tmp_path / name).exists(), name
+        assert (out / name).exists(), name
+    for name in PHASE3_TABLES:
+        assert (out / "tables" / name).exists(), name
+
+
+def test_analyze_reruns_post_hoc_analyses_from_state(fast_run):
+    out, result = fast_run
+    assert result.returncode == 0, result.stderr[-2000:]
+    for f in (out / "tables").glob("*.csv"):
+        f.unlink()
+    res = subprocess.run(
+        [sys.executable, "analyze.py", "--out-dir", str(out)],
+        cwd=ROOT, capture_output=True, text=True, timeout=300)
+    assert res.returncode == 0, res.stderr[-2000:]
+    for name in PHASE3_TABLES:
+        assert (out / "tables" / name).exists(), name
