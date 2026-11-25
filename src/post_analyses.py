@@ -10,7 +10,11 @@ import numpy as np
 import pandas as pd
 
 from . import config, plots
-from .analysis import logreg_coefficient_comparison, l1_regularisation_path
+from .analysis import (
+    logreg_coefficient_comparison, l1_regularisation_path,
+    raw_permutation_importance, importance_agreement, impurity_importances,
+    MODEL_FAMILIES,
+)
 from .preprocessing import get_feature_names
 from .config import FAILURE_MODES, TARGET
 from .data import load_raw
@@ -154,6 +158,31 @@ def nb_diagnosis(state, X_train, y_train, err):
     return pd.DataFrame(rows)
 
 
+# ── 3.6 Feature-importance agreement across families ───────────────────
+
+def importance_analysis(state, X_test, y_test, fast=False):
+    perm = raw_permutation_importance(state["estimators"], X_test, y_test,
+                                      n_repeats=2 if fast else 10)
+    _save_table(perm, "permutation_raw.csv")
+    ranks = perm.pivot(index="model", columns="variable", values="rank")
+    ranks = ranks.loc[[m for m in MODEL_FAMILIES if m in ranks.index]]
+    print("Rank of each raw variable (1 = most important):")
+    print(ranks.to_string())
+
+    rho, summary = importance_agreement(perm)
+    _save_table(rho, "importance_spearman.csv", index=True)
+    _save_table(summary, "importance_agreement_summary.csv")
+    print("Spearman rank correlation by family pair:")
+    print(summary.round(2).to_string(index=False))
+    plots.plot_importance_by_family(perm)
+    plots.plot_importance_agreement(rho, MODEL_FAMILIES)
+
+    imp = impurity_importances(state["estimators"])
+    _save_table(imp, "impurity_importance.csv")
+    plots.plot_impurity_importance(imp)
+    return perm
+
+
 # ── Driver ────────────────────────────────────────────────────────────
 
 def run_all(state, X_train, X_test, y_train, y_test, fast=False):
@@ -182,3 +211,6 @@ def run_all(state, X_train, X_test, y_train, y_test, fast=False):
     nb = nb_diagnosis(state, X_train, y_train, err)
     _save_table(nb, "nb_diagnosis.csv")
     print(nb.to_string(index=False))
+
+    _header("3.6 Feature-importance agreement across model families")
+    importance_analysis(state, X_test, y_test, fast)

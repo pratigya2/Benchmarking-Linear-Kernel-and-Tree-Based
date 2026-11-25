@@ -569,3 +569,84 @@ def plot_errors_on_physics(raw, preds_by_model, osf_limits, pwf_band):
                  "failure-rule planes", fontsize=13)
     plt.tight_layout()
     _save(fig, "19_errors_on_physics.png")
+
+
+FAMILY_COLORS = {"Linear": "#4C72B0", "Kernel / instance-based": "#DD8452",
+                 "Probabilistic": "#8172B2", "Tree-based": "#55A868"}
+
+
+def plot_importance_by_family(perm_df):
+    """Normalised raw-variable permutation importance, grouped by family."""
+    variables = (perm_df.groupby("variable")["importance_normalised"].mean()
+                 .sort_values(ascending=False).index.tolist())
+    families = [f for f in FAMILY_COLORS if f in set(perm_df["family"])]
+    width = 0.8 / len(families)
+    x = np.arange(len(variables))
+    fig, ax = plt.subplots(figsize=(13, 5.5))
+    for k, fam in enumerate(families):
+        sub = perm_df[perm_df["family"] == fam]
+        means = sub.groupby("variable")["importance_normalised"].mean().reindex(variables)
+        n_models = sub["model"].nunique()
+        off = (k - (len(families) - 1) / 2) * width
+        ax.bar(x + off, means, width, color=FAMILY_COLORS[fam], alpha=0.85,
+               edgecolor="black", label=f"{fam} (mean of {n_models} model"
+                                        f"{'s' if n_models > 1 else ''})")
+        for _, g in sub.groupby("model"):
+            vals = g.set_index("variable")["importance_normalised"].reindex(variables)
+            ax.scatter(x + off, vals, color="black", s=10, zorder=3)
+    ax.scatter([], [], color="black", s=10, label="Individual model")
+    ax.set_xticks(x, variables)
+    ax.set_xlabel("Original input variable (Type permuted as one variable)")
+    ax.set_ylabel("Normalised permutation importance\n"
+                  "(share of the model's total PR-AUC drop, unitless)")
+    ax.set_title("Permutation importance of the raw variables on the test set, "
+                 "by model family")
+    ax.legend(fontsize=8)
+    plt.tight_layout()
+    _save(fig, "20_importance_by_family.png")
+
+
+def plot_importance_agreement(rho, families):
+    """Spearman correlation matrix between models' importance rankings."""
+    fig, ax = plt.subplots(figsize=(11, 9.5), layout="constrained")
+    sns.heatmap(rho, annot=True, fmt=".2f", cmap="RdBu_r", vmin=-1, vmax=1,
+                square=True, linewidths=0.5, ax=ax, annot_kws={"fontsize": 8},
+                cbar_kws={"label": "Spearman rank correlation (unitless)"})
+    for lab in ax.get_xticklabels() + ax.get_yticklabels():
+        lab.set_color(FAMILY_COLORS.get(families.get(lab.get_text()), "black"))
+    # family boundaries
+    fams = [families[m] for m in rho.index]
+    for i in range(1, len(fams)):
+        if fams[i] != fams[i - 1]:
+            ax.axhline(i, color="black", lw=1.5)
+            ax.axvline(i, color="black", lw=1.5)
+    ax.legend(handles=[Patch(color=c, label=f) for f, c in FAMILY_COLORS.items()],
+              title="Model family (label colour)", fontsize=8, ncol=4,
+              loc="upper center", bbox_to_anchor=(0.5, -0.25))
+    ax.set_xlabel("Model")
+    ax.set_ylabel("Model")
+    fig.suptitle("Agreement of raw-variable importance rankings between "
+                 "models\n(Spearman over the 6 input variables, test-set "
+                 "permutation importance)", fontsize=12)
+    _save(fig, "21_importance_agreement.png")
+
+
+def plot_impurity_importance(imp_df, top_n=15):
+    """Built-in importances of the tree models, top features per model."""
+    models = list(dict.fromkeys(imp_df["model"]))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 11))
+    for ax, name in zip(axes.ravel(), models):
+        sub = imp_df[imp_df["model"] == name].nlargest(top_n, "importance")
+        kind = sub["type"].iloc[0]
+        ax.barh(range(len(sub)), sub["importance"], color="#55A868",
+                edgecolor="black", label=f"{kind} (normalised)")
+        ax.set_yticks(range(len(sub)), sub["feature"], fontsize=8)
+        ax.invert_yaxis()
+        ax.set_xlabel(f"Importance: normalised {kind} (sums to 1, unitless)")
+        ax.set_ylabel("Pipeline feature")
+        ax.set_title(f"{name}: top {top_n} features")
+        ax.legend(fontsize=8, loc="lower right")
+    fig.suptitle("Built-in (impurity / gain) importance of the tree models, "
+                 "computed on the training fit", fontsize=13)
+    plt.tight_layout()
+    _save(fig, "13b_gini_importance.png")

@@ -252,3 +252,80 @@ def l1_regularisation_path(estimator, X_train, y_train, Cs):
                      "cv_selected": bool(np.isclose(C, selected_C))})
     coef_df = pd.DataFrame(coefs, index=pd.Index(Cs, name="C"), columns=names)
     return coef_df, pd.DataFrame(rows)
+
+
+# ── Phase 3.6: importance on the raw input variables ──────────────────
+
+MODEL_FAMILIES = {
+    "LogReg_L2": "Linear", "LogReg_L1": "Linear",
+    "LogReg_ElasticNet": "Linear", "LinearSVM": "Linear",
+    "RBF_SVM": "Kernel / instance-based", "KNN": "Kernel / instance-based",
+    "GaussianNB": "Probabilistic",
+    "DecisionTree": "Tree-based", "RandomForest": "Tree-based",
+    "GradientBoosting": "Tree-based", "XGBoost": "Tree-based",
+}
+
+
+def raw_permutation_importance(estimators, X_test, y_test, n_repeats=10):
+    """Permutation importance of the 6 original input variables through the
+    whole pipeline (Type is permuted as one variable), scored with average
+    precision. The scorer uses predict_proba, or decision_function for the
+    SVMs. Descriptive only: computed after the final evaluation.
+    """
+    rows = []
+    for name, est in estimators.items():
+        r = permutation_importance(est, X_test, y_test, n_repeats=n_repeats,
+                                   random_state=SEED, n_jobs=-1,
+                                   scoring="average_precision")
+        imp = pd.DataFrame({"model": name,
+                            "family": MODEL_FAMILIES.get(name, "Other"),
+                            "variable": list(X_test.columns),
+                            "importance_mean": r.importances_mean,
+                            "importance_std": r.importances_std})
+        pos = imp["importance_mean"].clip(lower=0)
+        imp["importance_normalised"] = pos / pos.sum() if pos.sum() > 0 else 0.0
+        imp["rank"] = imp["importance_mean"].rank(ascending=False,
+                                                  method="min").astype(int)
+        rows.append(imp)
+    return pd.concat(rows, ignore_index=True)
+
+
+def importance_agreement(perm_df):
+    """Spearman rank correlation between models' raw-variable importances,
+    and its range within and between model families."""
+    wide = perm_df.pivot(index="variable", columns="model",
+                         values="importance_mean")
+    models = [m for m in MODEL_FAMILIES if m in wide.columns]
+    rho = wide[models].corr(method="spearman")
+    fam = {m: MODEL_FAMILIES[m] for m in models}
+    families = list(dict.fromkeys(fam.values()))
+    rows = []
+    for i, fa in enumerate(families):
+        for fb in families[i:]:
+            vals = [rho.loc[a, b] for a in models for b in models
+                    if a < b and {fam[a], fam[b]} == {fa, fb}]
+            if vals:
+                rows.append({"family_a": fa, "family_b": fb,
+                             "n_pairs": len(vals), "rho_min": min(vals),
+                             "rho_max": max(vals),
+                             "rho_mean": float(np.mean(vals))})
+    return rho, pd.DataFrame(rows)
+
+
+def impurity_importances(estimators, models=("DecisionTree", "RandomForest",
+                                             "GradientBoosting", "XGBoost")):
+    """Built-in importances of the tree models on the pipeline features.
+
+    DT/RF/GB: mean impurity decrease; XGBoost: total gain (its default for
+    tree boosters). All normalised to sum to 1.
+    """
+    rows = []
+    for name in models:
+        est = estimators[name]
+        rows.append(pd.DataFrame({
+            "model": name,
+            "feature": get_feature_names(est.named_steps["pre"]),
+            "importance": est.named_steps["clf"].feature_importances_,
+            "type": "total gain" if name == "XGBoost" else "mean impurity decrease",
+        }))
+    return pd.concat(rows, ignore_index=True)
