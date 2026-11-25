@@ -11,6 +11,7 @@ import pandas as pd
 
 from . import config, plots
 from .analysis import logreg_coefficient_comparison, l1_regularisation_path
+from .preprocessing import get_feature_names
 from .config import FAILURE_MODES, TARGET
 from .data import load_raw
 from . import error_analysis as ea
@@ -111,6 +112,48 @@ def error_analysis(state, y_test, models=ERROR_ANALYSIS_MODELS):
     return err
 
 
+# ── 3.3 Gaussian Naive Bayes diagnosis ─────────────────────────────────
+
+def nb_diagnosis(state, X_train, y_train, err):
+    """Correlation checks on the training set (NB assumes features are
+    independent within each class) and NB's recall per failure mode."""
+    air, proc = "Air temperature [K]", "Process temperature [K]"
+    rows = [{"check": "pearson_r_air_vs_process_temp_train",
+             "value": X_train[air].corr(X_train[proc]),
+             "note": "raw training set, both classes"}]
+    for c in (0, 1):
+        sub = X_train[y_train == c]
+        rows.append({"check": f"pearson_r_air_vs_process_temp_train_class{c}",
+                     "value": sub[air].corr(sub[proc]),
+                     "note": f"within class {c} (n = {len(sub)})"})
+
+    # Correlations among the 27 features NB actually receives
+    est = state["estimators"]["GaussianNB"]
+    Xt = pd.DataFrame(est.named_steps["pre"].transform(X_train),
+                      columns=get_feature_names(est.named_steps["pre"]))
+    for c in (0, 1):
+        r = Xt[(y_train == c).to_numpy()].corr().abs().to_numpy()
+        upper = r[np.triu_indices_from(r, k=1)]
+        rows += [
+            {"check": f"max_abs_r_between_model_features_class{c}",
+             "value": float(np.nanmax(upper)),
+             "note": f"{Xt.shape[1]} pipeline features, within class {c}"},
+            {"check": f"n_feature_pairs_abs_r_gt_0.9_class{c}",
+             "value": int(np.sum(upper > 0.9)),
+             "note": f"of {len(upper)} pairs, within class {c}"},
+        ]
+
+    nb = err.set_index("model").loc["GaussianNB"]
+    for k in ["TP", "FP", "FN"]:
+        rows.append({"check": f"test_{k}", "value": int(nb[k]),
+                     "note": "GaussianNB at its CV-selected threshold"})
+    for m in ea.MODES:
+        n = int(nb[f"n_{m}"])
+        rows.append({"check": f"test_recall_{m}", "value": nb[f"recall_{m}"],
+                     "note": f"{n - int(nb[f'fn_{m}'])}/{n} test failures detected"})
+    return pd.DataFrame(rows)
+
+
 # ── Driver ────────────────────────────────────────────────────────────
 
 def run_all(state, X_train, X_test, y_train, y_test, fast=False):
@@ -133,4 +176,9 @@ def run_all(state, X_train, X_test, y_train, y_test, fast=False):
                              score_only=score_only_models(state))
 
     _header("3.5 Error analysis by failure mode")
-    error_analysis(state, y_test)
+    err = error_analysis(state, y_test)
+
+    _header("3.3 Gaussian Naive Bayes diagnosis")
+    nb = nb_diagnosis(state, X_train, y_train, err)
+    _save_table(nb, "nb_diagnosis.csv")
+    print(nb.to_string(index=False))
