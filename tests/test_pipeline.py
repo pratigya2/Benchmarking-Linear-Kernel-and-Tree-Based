@@ -22,6 +22,7 @@ from src.config import DATA_PATH, ID_COLS, LEAK_COLS, SEED, TARGET  # noqa: E402
 from src.data import load_raw, clean, split  # noqa: E402
 from src.preprocessing import build_preprocessor  # noqa: E402
 from src.error_analysis import mode_masks  # noqa: E402
+from src.reproducibility import sanitize_command_line  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     not DATA_PATH.exists(), reason=f"dataset not found at {DATA_PATH}")
@@ -78,6 +79,10 @@ def test_no_constant_columns_after_preprocessing(df):
     names = pre.get_feature_names_out()
     assert len(names) == Xt.shape[1] == 27  # 7 base + 21 products - 1 constant
     assert "Type_L Type_M" not in names
+
+
+def test_command_line_is_sanitized():
+    assert sanitize_command_line(["/home/u/repo/main.py", "--fast", "--out-dir", "/home/u/x/out"]) == ["python", "main.py", "--fast", "--out-dir", "out"]
 
 
 def test_failure_mode_masks_match_label_noise_facts():

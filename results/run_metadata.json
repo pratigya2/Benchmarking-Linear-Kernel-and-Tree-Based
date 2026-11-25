@@ -4,7 +4,7 @@
   "end_time": "2026-11-25T10:46:08-06:00",
   "wall_clock_seconds": 2429.9,
   "command_line": [
-    "/Users/giorgiobianchini/miniconda3/envs/aliens-ml/bin/python",
+    "python",
     "main.py"
   ],
   "git_commit": "1e7104a4101f97fe5a872fd1772cb894751185be",
