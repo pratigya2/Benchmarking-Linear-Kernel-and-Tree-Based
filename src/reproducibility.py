@@ -125,6 +125,24 @@ def _md5(path):
     return h.hexdigest()
 
 
+def sanitize_command_line(argv):
+    """Generic command line: "python", the script name and its arguments.
+
+    The interpreter path is dropped and absolute paths are reduced to their
+    final component, so no username, home directory or host path is stored.
+    """
+    def clean(arg):
+        key, sep, value = arg.partition("=")
+        if sep and os.path.isabs(value):
+            return f"{key}={os.path.basename(value.rstrip(os.sep))}"
+        return os.path.basename(arg.rstrip(os.sep)) if os.path.isabs(arg) else arg
+
+    argv = list(argv)
+    if not argv:
+        return ["python"]
+    return ["python", os.path.basename(argv[0])] + [clean(a) for a in argv[1:]]
+
+
 class RunMetadata:
     """Collects run metadata and writes it to <out_dir>/run_metadata.json.
 
@@ -140,7 +158,7 @@ class RunMetadata:
             "start_time": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
             "end_time": None,
             "wall_clock_seconds": None,
-            "command_line": [sys.executable] + list(argv),
+            "command_line": sanitize_command_line(argv),
             **_git_info(),
             "seed": config.SEED,
             "test_size": config.TEST_SIZE,
