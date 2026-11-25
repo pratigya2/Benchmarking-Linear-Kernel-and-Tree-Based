@@ -437,3 +437,42 @@ def plot_l1_path(coef_df, summary_df, top_n=8):
     axes[1].legend(fontsize=8, loc="lower right")
     plt.tight_layout()
     _save(fig, "12c_l1_path.png")
+
+
+def plot_confusion_all(metrics_df, probas, thresholds, y_test, score_only=()):
+    """Confusion matrices of all models at their CV-selected thresholds.
+
+    Cell colour is the row-normalised rate (fraction of the true class);
+    the annotation gives the count and that rate.
+    """
+    names = list(metrics_df.index)
+    ncols = 4
+    nrows = int(np.ceil(len(names) / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4.4 * ncols, 3.9 * nrows),
+                             layout="constrained")
+    axes = axes.ravel()
+    y = np.asarray(y_test)
+    im = None
+    for ax, name in zip(axes, names):
+        tau = thresholds[name]
+        cm = confusion_matrix(y, (probas[name] >= tau).astype(int), labels=[0, 1])
+        rate = cm / cm.sum(axis=1, keepdims=True)
+        im = ax.imshow(rate, cmap="Blues", vmin=0, vmax=1)
+        for i in range(2):
+            for j in range(2):
+                ax.text(j, i, f"{cm[i, j]}\n({rate[i, j]:.1%})", ha="center",
+                        va="center", fontsize=9,
+                        color="white" if rate[i, j] > 0.6 else "black")
+        ax.set_xticks([0, 1], ["Normal", "Failure"])
+        ax.set_yticks([0, 1], ["Normal", "Failure"], rotation=90, va="center")
+        ax.set_xlabel("Predicted class")
+        ax.set_ylabel("True class")
+        scale = "decision score" if name in score_only else "probability"
+        ax.set_title(f"{name}\nthreshold {tau:.3f} ({scale})", fontsize=9)
+    for ax in axes[len(names):]:
+        ax.axis("off")
+    cbar = fig.colorbar(im, ax=axes.tolist(), shrink=0.6, pad=0.02)
+    cbar.set_label("Fraction of the true class (row-normalised)")
+    fig.suptitle("Confusion matrices of all models on the test set at the "
+                 "CV-selected threshold (ordered by test PR-AUC)", fontsize=13)
+    _save(fig, "09b_confusion_all.png")

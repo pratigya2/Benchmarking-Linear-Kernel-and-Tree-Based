@@ -74,6 +74,12 @@ def logreg_analysis(state, X_train, y_train, fast=False):
     plots.plot_l1_path(path, summary)
 
 
+def score_only_models(state):
+    """Models scored with decision_function (no predict_proba): the SVMs."""
+    return [n for n, e in state["estimators"].items()
+            if not hasattr(e, "predict_proba")]
+
+
 # ── Driver ────────────────────────────────────────────────────────────
 
 def run_all(state, X_train, X_test, y_train, y_test, fast=False):
@@ -89,3 +95,8 @@ def run_all(state, X_train, X_test, y_train, y_test, fast=False):
 
     _header("3.2 Logistic-regression coefficients and L1 path")
     logreg_analysis(state, X_train, y_train, fast)
+
+    _header("3.4 Confusion matrices of all models")
+    plots.plot_confusion_all(state["metrics_df"], state["probas"],
+                             state["thresholds"], y_test,
+                             score_only=score_only_models(state))
