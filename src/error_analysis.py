@@ -26,6 +26,21 @@ OSF_STRAIN_LIMITS = {"L": 11_000, "M": 12_000, "H": 13_000}   # min * Nm
 PWF_POWER_BAND = (3_500, 9_000)                                 # W
 
 
+# Variables entering each failure mode's generating rule
+FAILURE_RULES = {
+    "HDF": ("process - air temperature < 8.6 K and rotational speed < 1,380 rpm",
+            ["Air temperature [K]", "Process temperature [K]",
+             "Rotational speed [rpm]"]),
+    "PWF": ("power = torque x speed (rad/s) outside 3,500-9,000 W",
+            ["Torque [Nm]", "Rotational speed [rpm]"]),
+    "OSF": ("tool wear x torque > 11,000 / 12,000 / 13,000 min*Nm for L / M / H",
+            ["Tool wear [min]", "Torque [Nm]", "Type"]),
+    "TWF": ("tool replaced or failed at a random tool wear between 200 and 240 min",
+            ["Tool wear [min]"]),
+    "RNF": ("random failure with probability 0.1%, independent of the inputs", []),
+}
+
+
 def raw_test_rows(index):
     """Raw CSV rows (features, target, IDs and mode flags) for ``index``."""
     return load_raw().loc[index]

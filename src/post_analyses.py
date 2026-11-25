@@ -183,6 +183,38 @@ def importance_analysis(state, X_test, y_test, fast=False):
     return perm
 
 
+# ── 3.7 Failure rules vs importance ────────────────────────────────────
+
+def failure_rules_vs_importance(perm, err, noise, models=ERROR_ANALYSIS_MODELS):
+    """One row per (failure mode, variable in its generating rule), with that
+    variable's permutation-importance rank (1-6) in every model and the
+    recall of the selected models on that mode. Numbers only."""
+    ranks = perm.pivot(index="variable", columns="model", values="rank")
+    order = [m for m in MODEL_FAMILIES if m in ranks.columns]
+    n_total = noise.set_index("item")
+    e = err.set_index("model")
+    rows = []
+    for mode, (rule, variables) in ea.FAILURE_RULES.items():
+        for var in variables or [None]:
+            row = {"mode": mode, "rule": rule,
+                   "variable": var if var else "(none: random)",
+                   "n_failures_dataset": int(n_total.loc[mode, "machine_failure_1"]),
+                   "n_failures_test": int(e[f"n_{mode}"].iloc[0])}
+            for m in order:
+                row[f"rank_{m}"] = int(ranks.loc[var, m]) if var else np.nan
+            r = [row[f"rank_{m}"] for m in order]
+            row["rank_median"] = float(np.median(r)) if var else np.nan
+            row["rank_best"] = min(r) if var else np.nan
+            row["rank_worst"] = max(r) if var else np.nan
+            for m in models:
+                row[f"recall_{m}"] = e.loc[m, f"recall_{mode}"]
+            rows.append(row)
+    out = pd.DataFrame(rows)
+    int_cols = [c for c in out if c.startswith("rank_") and c != "rank_median"]
+    out[int_cols] = out[int_cols].astype("Int64")
+    return out
+
+
 # ── Driver ────────────────────────────────────────────────────────────
 
 def run_all(state, X_train, X_test, y_train, y_test, fast=False):
@@ -213,4 +245,9 @@ def run_all(state, X_train, X_test, y_train, y_test, fast=False):
     print(nb.to_string(index=False))
 
     _header("3.6 Feature-importance agreement across model families")
-    importance_analysis(state, X_test, y_test, fast)
+    perm = importance_analysis(state, X_test, y_test, fast)
+
+    _header("3.7 Failure rules vs importance ranking")
+    rules = failure_rules_vs_importance(perm, err, noise)
+    _save_table(rules, "failure_rules_vs_importance.csv")
+    print(rules.drop(columns="rule").to_string(index=False))
