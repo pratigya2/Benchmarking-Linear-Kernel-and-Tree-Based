@@ -1,0 +1,5 @@
+Model,Class weighting,SMOTE,Δ (SMOTE − weighting),SMOTE run with
+LogReg_L2,0.509 ± 0.059,0.515 ± 0.054,+0.006,class_weight=None
+RandomForest,0.744 ± 0.040,0.728 ± 0.019,-0.016,class_weight=None
+GradientBoosting,0.767 ± 0.048,0.759 ± 0.037,-0.008,no sample_weight
+XGBoost,0.804 ± 0.035,0.783 ± 0.026,-0.021,scale_pos_weight=1

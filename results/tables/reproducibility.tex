@@ -1,0 +1,43 @@
+\begin{table}[ht]
+\centering
+\small
+\caption{Reproducibility: software, settings, hardware, runtime and selected hyperparameters.}
+\label{tab:reproducibility}
+\begin{tabular}{lp{9cm}}
+\toprule
+Setting & Value \\
+\midrule
+Code commit & 6082e88 \\
+Python & 3.12.16 \\
+numpy & 2.5.5 \\
+pandas & 3.1.1 \\
+scipy & 1.18.1 \\
+scikit-learn & 1.9.1 \\
+imbalanced-learn & 0.14.2 \\
+xgboost & 3.4.1 \\
+shap & 0.54.1 \\
+matplotlib & 3.11.2 \\
+seaborn & 0.13.2 \\
+joblib & 1.6.0 \\
+Random seed & 42 \\
+Test size & 20\% (stratified) \\
+CV folds & 5 (stratified, shuffled, seed 42) \\
+Tuning metric & average precision (PR-AUC) \\
+Data file MD5 & f0adaa9c5e25366c6df1cc2684479871 \\
+Hardware & Apple M3, 16 GB RAM, 8 cores \\
+Platform & macOS-26.6.2-arm64-arm-64bit \\
+Full-run wall-clock time & 2374 s (39.6 min) \\
+Selected hyperparameters: LogReg\_L2 & C=10 \\
+Selected hyperparameters: LogReg\_L1 & C=1 \\
+Selected hyperparameters: LogReg\_ElasticNet & C=100, l1\_ratio=0.8 \\
+Selected hyperparameters: LinearSVM & C=1 \\
+Selected hyperparameters: RBF\_SVM & C=10, gamma=0.01 \\
+Selected hyperparameters: KNN & n\_neighbors=31, weights=distance \\
+Selected hyperparameters: GaussianNB & var\_smoothing=1e-15 \\
+Selected hyperparameters: DecisionTree & max\_depth=None, min\_samples\_leaf=10 \\
+Selected hyperparameters: RandomForest & max\_depth=None, min\_samples\_leaf=1, n\_estimators=300 \\
+Selected hyperparameters: GradientBoosting & learning\_rate=0.1, max\_depth=7, n\_estimators=500, subsample=1.0 \\
+Selected hyperparameters: XGBoost & learning\_rate=0.1, max\_depth=9, n\_estimators=300, subsample=1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}

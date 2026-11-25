@@ -1,0 +1,23 @@
+\begin{table}[ht]
+\centering
+\small
+\caption{Ablation: CV PR-AUC (mean $\pm$ std over 5 folds), each configuration re-tuned.}
+\label{tab:ablation}
+\begin{tabular}{lrrrr}
+\toprule
+Model & baseline & interactions & PCA\_only & interactions+PCA \\
+\midrule
+LogReg\_L2 & 0.446 $\pm$ 0.026 & 0.509 $\pm$ 0.059 & 0.433 $\pm$ 0.045 & 0.436 $\pm$ 0.058 \\
+LogReg\_L1 & 0.447 $\pm$ 0.026 & 0.509 $\pm$ 0.062 & 0.433 $\pm$ 0.045 & 0.439 $\pm$ 0.064 \\
+LogReg\_ElasticNet & 0.441 $\pm$ 0.061 & 0.508 $\pm$ 0.051 & 0.425 $\pm$ 0.060 & 0.447 $\pm$ 0.060 \\
+LinearSVM & 0.447 $\pm$ 0.024 & 0.510 $\pm$ 0.065 & 0.436 $\pm$ 0.045 & 0.434 $\pm$ 0.056 \\
+RBF\_SVM & 0.666 $\pm$ 0.033 & 0.661 $\pm$ 0.033 & 0.513 $\pm$ 0.043 & 0.498 $\pm$ 0.045 \\
+KNN & 0.610 $\pm$ 0.045 & 0.578 $\pm$ 0.051 & 0.525 $\pm$ 0.038 & 0.500 $\pm$ 0.039 \\
+GaussianNB & 0.302 $\pm$ 0.051 & 0.190 $\pm$ 0.022 & 0.363 $\pm$ 0.041 & 0.240 $\pm$ 0.031 \\
+DecisionTree & 0.643 $\pm$ 0.039 & 0.582 $\pm$ 0.085 & 0.408 $\pm$ 0.043 & 0.405 $\pm$ 0.053 \\
+RandomForest & 0.746 $\pm$ 0.039 & 0.744 $\pm$ 0.040 & 0.554 $\pm$ 0.049 & 0.574 $\pm$ 0.036 \\
+GradientBoosting & 0.799 $\pm$ 0.024 & 0.767 $\pm$ 0.048 & 0.539 $\pm$ 0.043 & 0.562 $\pm$ 0.050 \\
+XGBoost & 0.790 $\pm$ 0.048 & 0.804 $\pm$ 0.035 & 0.582 $\pm$ 0.025 & 0.618 $\pm$ 0.049 \\
+\bottomrule
+\end{tabular}
+\end{table}
