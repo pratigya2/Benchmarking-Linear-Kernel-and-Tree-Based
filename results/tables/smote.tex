@@ -1,0 +1,16 @@
+\begin{table}[ht]
+\centering
+\small
+\caption{SMOTE vs class weighting: CV PR-AUC (mean $\pm$ std over 5 folds), same grids and folds.}
+\label{tab:smote}
+\begin{tabular}{lrrrl}
+\toprule
+Model & Class weighting & SMOTE & $\Delta$ (SMOTE − weighting) & SMOTE run with \\
+\midrule
+LogReg\_L2 & 0.509 $\pm$ 0.059 & 0.515 $\pm$ 0.054 & +0.006 & class\_weight=None \\
+RandomForest & 0.744 $\pm$ 0.040 & 0.728 $\pm$ 0.019 & -0.016 & class\_weight=None \\
+GradientBoosting & 0.767 $\pm$ 0.048 & 0.759 $\pm$ 0.037 & -0.008 & no sample\_weight \\
+XGBoost & 0.804 $\pm$ 0.035 & 0.783 $\pm$ 0.026 & -0.021 & scale\_pos\_weight=1 \\
+\bottomrule
+\end{tabular}
+\end{table}

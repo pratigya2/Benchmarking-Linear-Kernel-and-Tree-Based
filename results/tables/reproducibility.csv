@@ -1,0 +1,32 @@
+Setting,Value
+Code commit,6082e88
+Python,3.12.16
+numpy,2.5.5
+pandas,3.1.1
+scipy,1.18.1
+scikit-learn,1.9.1
+imbalanced-learn,0.14.2
+xgboost,3.4.1
+shap,0.54.1
+matplotlib,3.11.2
+seaborn,0.13.2
+joblib,1.6.0
+Random seed,42
+Test size,20% (stratified)
+CV folds,"5 (stratified, shuffled, seed 42)"
+Tuning metric,average precision (PR-AUC)
+Data file MD5,f0adaa9c5e25366c6df1cc2684479871
+Hardware,"Apple M3, 16 GB RAM, 8 cores"
+Platform,macOS-26.6.2-arm64-arm-64bit
+Full-run wall-clock time,2374 s (39.6 min)
+Selected hyperparameters: LogReg_L2,C=10
+Selected hyperparameters: LogReg_L1,C=1
+Selected hyperparameters: LogReg_ElasticNet,"C=100, l1_ratio=0.8"
+Selected hyperparameters: LinearSVM,C=1
+Selected hyperparameters: RBF_SVM,"C=10, gamma=0.01"
+Selected hyperparameters: KNN,"n_neighbors=31, weights=distance"
+Selected hyperparameters: GaussianNB,var_smoothing=1e-15
+Selected hyperparameters: DecisionTree,"max_depth=None, min_samples_leaf=10"
+Selected hyperparameters: RandomForest,"max_depth=None, min_samples_leaf=1, n_estimators=300"
+Selected hyperparameters: GradientBoosting,"learning_rate=0.1, max_depth=7, n_estimators=500, subsample=1.0"
+Selected hyperparameters: XGBoost,"learning_rate=0.1, max_depth=9, n_estimators=300, subsample=1.0"
