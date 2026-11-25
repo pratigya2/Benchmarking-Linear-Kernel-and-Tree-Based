@@ -199,6 +199,9 @@ def shap_analysis(estimator, X_test):
     feature_names = get_feature_names(pre)
     X_pre = pd.DataFrame(pre.transform(X_test), columns=feature_names)
 
+    # The models were fitted on arrays; pass an array too. (XGBoost rejects
+    # DataFrame column names containing "[", "]" or "<", e.g. "Torque [Nm]".)
+    # Feature names are kept in X_pre for the plots.
     explainer = shap.TreeExplainer(clf)
-    shap_values = explainer.shap_values(X_pre)
+    shap_values = explainer.shap_values(X_pre.to_numpy())
     return shap_values, X_pre
