@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.patches import Patch
 from sklearn.metrics import (
     precision_recall_curve, roc_curve,
     confusion_matrix, ConfusionMatrixDisplay,
@@ -318,3 +319,58 @@ def plot_model_ranking(metrics_df, y_test):
     plt.suptitle("Test set - multi-metric comparison", fontsize=13, y=1.02)
     plt.tight_layout()
     _save(fig, "17_multi_metric_comparison.png")
+
+
+# ── Phase 3 analyses ──────────────────────────────────────────────────
+
+def plot_failure_modes(noise_df):
+    """Failure-mode flag counts split by label, plus label-consistency counts."""
+    modes = noise_df[noise_df["group"] == "mode"].set_index("item")
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8),
+                             gridspec_kw={"width_ratios": [1.4, 1]})
+
+    x = np.arange(len(modes))
+    pos, neg = modes["machine_failure_1"], modes["machine_failure_0"]
+    axes[0].bar(x, pos, color="#DD8452", edgecolor="black",
+                label="Machine failure = 1")
+    axes[0].bar(x, neg, bottom=pos, color="#4C72B0", edgecolor="black",
+                label="Machine failure = 0 (label noise)")
+    for i, (p, n) in enumerate(zip(pos, neg)):
+        axes[0].text(i, p + n + 1.5, f"{p + n}" + (f"\n({n} with label 0)" if n else ""),
+                     ha="center", va="bottom", fontsize=8)
+    axes[0].set_xticks(x, modes.index)
+    axes[0].set_xlabel("Failure mode flag")
+    axes[0].set_ylabel("Number of rows (count)")
+    axes[0].set_ylim(0, (pos + neg).max() * 1.25)
+    n_total = int(noise_df.attrs.get("n_rows", 0))
+    axes[0].set_title(f"Failure-mode flags (all {n_total:,} rows)")
+    axes[0].legend(loc="upper left", fontsize=8)
+
+    cons = noise_df[noise_df["group"] == "consistency"].set_index("item")
+    labels = {
+        "failure_without_mode_flag": "Failure,\nno mode flag",
+        "mode_flag_without_failure": "Mode flag,\nno failure",
+        "multiple_mode_flags": "Two or more\nmode flags",
+    }
+    vals = cons["n_rows"].reindex(list(labels))
+    bars = axes[1].bar([labels[k] for k in labels], vals,
+                       color=["#C44E52", "#8172B2", "#55A868"], edgecolor="black")
+    for b, v in zip(bars, vals):
+        axes[1].text(b.get_x() + b.get_width() / 2, v + 0.4, str(int(v)),
+                     ha="center", va="bottom", fontweight="bold")
+    axes[1].set_xlabel("Label consistency check")
+    axes[1].set_ylabel("Number of rows (count)")
+    axes[1].set_ylim(0, vals.max() * 1.25)
+    axes[1].set_title("Label consistency between target and mode flags")
+    axes[1].legend(handles=[
+        Patch(facecolor="#C44E52", edgecolor="black", label="Target = 1 but no mode flag"),
+        Patch(facecolor="#8172B2", edgecolor="black", label="Mode flag but target = 0"),
+        Patch(facecolor="#55A868", edgecolor="black", label="Row has several modes"),
+    ], fontsize=8, loc="upper left")
+
+    rnf = int(modes.loc["RNF", "n_rows"])
+    fig.text(0.01, -0.03,
+             f"Note: the UCI documentation lists RNF as occurring 5 times; "
+             f"this CSV contains {rnf} RNF flags.", fontsize=8, style="italic")
+    plt.tight_layout()
+    _save(fig, "01b_failure_modes.png")

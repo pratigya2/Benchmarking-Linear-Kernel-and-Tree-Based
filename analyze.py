@@ -5,25 +5,35 @@ main.py saves the fitted estimators, thresholds, test-set probabilities and
 metrics to <out-dir>/_state.joblib. This script loads that state, rebuilds
 the exact test set from the saved row indices, checks that the stored
 probabilities are reproduced by the loaded models, and prints the results.
-Later analyses (error analysis, importances, ...) can build on load_state()
-and rebuild_split().
+It then runs the post-hoc analyses of src/post_analyses.py (the same
+functions main.py calls at the end of a full run) and writes their tables
+and figures to <out-dir>/tables and <out-dir>/figures.
 
 Usage:
     python analyze.py                 # uses outputs/
     python analyze.py --out-dir DIR
+    python analyze.py --check-only    # only verify the saved state
 """
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
 
+# Same warning policy as main.py: show each distinct warning, filter only
+# known third-party noise (seaborn's Colormap.set_bad call).
+warnings.simplefilter("default")
+warnings.filterwarnings("ignore", category=PendingDeprecationWarning,
+                        message=r"The set_bad function will be deprecated")
+
 from src import config
 from src.config import TARGET
 from src.data import load_raw, clean
+from src.post_analyses import run_all
 
 
 def load_state(out_dir=None):
@@ -58,9 +68,12 @@ def check_probas(state, X_test):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out-dir", default=str(config.OUT_DIR))
+    parser.add_argument("--check-only", action="store_true",
+                        help="only check the saved state; skip the analyses")
     args = parser.parse_args(argv)
+    config.set_out_dir(args.out_dir)
 
-    state = load_state(args.out_dir)
+    state = load_state()
     print(f"State from commit {state.get('git_commit')} "
           f"(fast mode: {state.get('fast_mode')})")
 
@@ -80,7 +93,13 @@ def main(argv=None):
         print(state["cv_table"][["model", "best_cv_mean", "best_cv_std",
                                  "best_on_grid_edge", "convergence_warnings"]]
               .to_string(index=False))
-    return 0 if worst < 1e-9 else 1
+    if worst >= 1e-9:
+        return 1
+    if not args.check_only:
+        print("\nPost-hoc analyses:")
+        run_all(state, X_train, X_test, y_train, y_test,
+                fast=bool(state.get("fast_mode")))
+    return 0
 
 
 if __name__ == "__main__":

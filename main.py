@@ -46,6 +46,7 @@ from src.analysis import (
     shap_analysis,
 )
 from src import plots
+from src.post_analyses import run_all as run_post_analyses
 from src.reproducibility import start_log, RunMetadata
 
 # --fast smoke-test settings (never used for reported results)
@@ -278,6 +279,11 @@ def main(argv=None):
     section(16, "CLASSIFICATION REPORTS - TOP 3")
     print_classification_reports(
         metrics_df, probas, thresholds, estimators, X_test, y_test)
+
+    # ── 17. Post-hoc analyses (same as analyze.py) ───────────────────
+    section(17, "POST-HOC ANALYSES")
+    run_post_analyses(joblib.load(config.OUT_DIR / "_state.joblib"),
+                      X_train, X_test, y_train, y_test, fast=args.fast)
 
     # ── Done ──────────────────────────────────────────────────────────
     section("", "DONE")
