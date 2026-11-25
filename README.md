@@ -36,7 +36,7 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 
 ```
 ├── main.py                  # Entry point — runs the full pipeline
-├── analyze.py               # Reloads outputs/_state.joblib (no retuning)
+├── analyze.py               # Reloads outputs/_state.joblib and reruns the post-hoc analyses (no retuning)
 ├── requirements.txt         # Pinned dependency versions
 ├── src/
 │   ├── config.py            # Constants, paths, feature names, seed
@@ -44,14 +44,17 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 │   ├── preprocessing.py     # Sklearn pipeline builders
 │   ├── models.py            # Model specs and hyperparameter grids
 │   ├── evaluation.py        # Tuning, thresholds, metrics, bootstrap tests
-│   ├── analysis.py          # Ablation, SMOTE, feature importance, SHAP
+│   ├── analysis.py          # Ablation, SMOTE, coefficients, feature importance, SHAP
+│   ├── error_analysis.py    # Errors by failure mode (flags joined after prediction)
+│   ├── post_analyses.py     # Post-hoc analyses run from the saved state (main.py and analyze.py)
 │   ├── reproducibility.py   # Run log, run metadata, ConvergenceWarning counting
-│   └── plots.py             # All 17 figures
+│   └── plots.py             # All 26 figures (300 dpi)
 ├── data/
 │   └── ai4i2020.csv         # Downloaded from UCI (not tracked in git)
 ├── outputs/
-│   ├── figures/             # 17 PNG figures (regenerated on each run)
+│   ├── figures/             # 26 PNG figures (regenerated on each run)
 │   │   ├── 01_class_distribution.png
+│   │   ├── 01b_failure_modes.png
 │   │   ├── 02_feature_distributions.png
 │   │   ├── 03_correlation_heatmap.png
 │   │   ├── 04_pairwise_scatter.png
@@ -60,18 +63,38 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 │   │   ├── 07_pr_curves.png
 │   │   ├── 08_roc_curves.png
 │   │   ├── 09_confusion_matrices.png
+│   │   ├── 09b_confusion_all.png
 │   │   ├── 10_threshold_tradeoff.png
 │   │   ├── 11_calibration.png
 │   │   ├── 12_logreg_coefficients.png
+│   │   ├── 12b_logreg_coef_comparison.png
+│   │   ├── 12c_l1_path.png
 │   │   ├── 13_permutation_importance.png
+│   │   ├── 13b_gini_importance.png
 │   │   ├── 14_shap_summary.png
 │   │   ├── 15_shap_bar.png
 │   │   ├── 16_model_ranking.png
-│   │   └── 17_multi_metric_comparison.png
+│   │   ├── 17_multi_metric_comparison.png
+│   │   ├── 18_recall_by_failure_mode.png
+│   │   ├── 19_errors_on_physics.png
+│   │   ├── 20_importance_by_family.png
+│   │   └── 21_importance_agreement.png
+│   ├── tables/              # Post-hoc analysis tables
+│   │   ├── label_noise.csv
+│   │   ├── logreg_coefficients.csv
+│   │   ├── l1_path.csv, l1_path_coefficients.csv
+│   │   ├── nb_diagnosis.csv
+│   │   ├── error_by_failure_mode.csv
+│   │   ├── best_model_false_negatives.csv   # XGBoost and Gradient Boosting
+│   │   ├── permutation_raw.csv
+│   │   ├── importance_spearman.csv, importance_agreement_summary.csv
+│   │   ├── impurity_importance.csv
+│   │   └── failure_rules_vs_importance.csv
 │   ├── test_metrics.csv
 │   ├── cv_results.csv       # Tuning summary per model (grid edge, convergence warnings)
-│   ├── ablation_results.csv
+│   ├── ablation_results.csv # Mean CV PR-AUC (+ _std.csv and _long.csv)
 │   ├── smote_comparison.csv
+│   ├── significance.csv     # Bootstrap CIs and Holm-corrected paired tests
 │   ├── run_metadata.json    # Commit, versions, hardware, seed, runtime
 │   ├── run.log              # Full console log of the run
 │   └── _state.joblib        # Fitted models, thresholds, test scores
@@ -117,6 +140,8 @@ python main.py                      # full run (writes to outputs/)
 python main.py --fast               # smoke test, < 2 min; results not meaningful
 python main.py --skip-ablation --skip-smote
 python main.py --out-dir results/run_a
+python analyze.py                   # rerun the post-hoc analyses from outputs/_state.joblib
+python analyze.py --check-only      # only check that the saved models reproduce the test scores
 ```
 
 | Option | Effect |
@@ -126,7 +151,7 @@ python main.py --out-dir results/run_a
 | `--skip-smote` | Skip the SMOTE vs class-weight comparison |
 | `--out-dir DIR` | Write all outputs to `DIR` (default `outputs/`) |
 
-The full pipeline takes ~10–15 minutes and runs through:
+The full pipeline takes about 40 minutes on an Apple M3 and runs through:
 
 1. **Data loading & cleaning** — drops IDs and failure-mode flags (target leakage)
 2. **EDA** — class distribution, feature distributions, correlations, scatter plots
@@ -139,7 +164,8 @@ The full pipeline takes ~10–15 minutes and runs through:
 9. **SMOTE comparison** — SMOTE vs class weighting for LogReg L2, Random Forest, Gradient Boosting and XGBoost, with the same grids and CV folds as the main benchmark (SMOTE applied after scaling, before the interaction terms)
 10. **Feature importance** — logistic regression coefficients, Gini importance, permutation importance, SHAP
 11. **Statistical significance** — bootstrap 95% CIs of test PR-AUC and a paired bootstrap test of the best model vs every other model (2,000 resamples, one-sided, Holm-corrected); saved to `significance.csv`
-12. **17 publication-ready figures** saved to `outputs/figures/`
+12. **Post-hoc analyses** (also available from the saved state via `analyze.py`) — failure-mode label checks, logistic-regression coefficient comparison and L1 path, Naive Bayes diagnosis, confusion matrices for all models, error analysis by failure mode, permutation importance of the 6 raw variables for all models with cross-family agreement, built-in tree importances, failure rules vs importance; tables saved to `outputs/tables/`
+13. **26 figures at 300 dpi** saved to `outputs/figures/`
 
 ---
 
