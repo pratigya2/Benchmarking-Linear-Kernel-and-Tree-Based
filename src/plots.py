@@ -12,7 +12,7 @@ from sklearn.calibration import calibration_curve
 from . import config
 from .config import TARGET, NUM_FEATURES, PHYSICS_PAIRS
 
-DPI = 150
+DPI = 300
 SAVE_KW = dict(dpi=DPI, bbox_inches="tight")
 
 
