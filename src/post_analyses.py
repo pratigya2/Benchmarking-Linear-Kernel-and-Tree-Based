@@ -13,6 +13,7 @@ from . import config, plots
 from .analysis import logreg_coefficient_comparison, l1_regularisation_path
 from .config import FAILURE_MODES, TARGET
 from .data import load_raw
+from . import error_analysis as ea
 
 
 def _save_table(df, name, index=False):
@@ -80,6 +81,36 @@ def score_only_models(state):
             if not hasattr(e, "predict_proba")]
 
 
+# ── 3.5 Error analysis by failure mode ─────────────────────────────────
+
+# XGBoost and GB are statistically tied on test PR-AUC (significance.csv),
+# so the per-row error analysis covers both.
+ERROR_ANALYSIS_MODELS = ["XGBoost", "GradientBoosting"]
+
+
+def error_analysis(state, y_test, models=ERROR_ANALYSIS_MODELS):
+    err = ea.error_by_failure_mode(state, y_test)
+    _save_table(err, "error_by_failure_mode.csv")
+    show = ["model", "TP", "FP", "FN", "fp_on_flagged_negatives"] + \
+           [f"recall_{m}" for m in ea.MODES]
+    print(err[show].round(2).to_string(index=False))
+    print("Test failures per mode: " + ", ".join(
+        f"{m} {int(err[f'n_{m}'].iloc[0])}" for m in ea.MODES))
+    plots.plot_recall_by_failure_mode(err, ea.MODES)
+
+    models = [m for m in models if m in state["probas"]]
+    fn = ea.false_negatives(state, y_test, models)
+    _save_table(fn, "best_model_false_negatives.csv")
+    print("False negatives by mode:")
+    print(ea.fn_counts_by_mode(fn).to_string())
+
+    preds = ea.predictions(state)
+    plots.plot_errors_on_physics(ea.raw_test_rows(y_test.index),
+                                 {m: preds[m] for m in models},
+                                 ea.OSF_STRAIN_LIMITS, ea.PWF_POWER_BAND)
+    return err
+
+
 # ── Driver ────────────────────────────────────────────────────────────
 
 def run_all(state, X_train, X_test, y_train, y_test, fast=False):
@@ -100,3 +131,6 @@ def run_all(state, X_train, X_test, y_train, y_test, fast=False):
     plots.plot_confusion_all(state["metrics_df"], state["probas"],
                              state["thresholds"], y_test,
                              score_only=score_only_models(state))
+
+    _header("3.5 Error analysis by failure mode")
+    error_analysis(state, y_test)

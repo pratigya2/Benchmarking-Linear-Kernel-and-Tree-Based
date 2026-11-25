@@ -476,3 +476,96 @@ def plot_confusion_all(metrics_df, probas, thresholds, y_test, score_only=()):
     fig.suptitle("Confusion matrices of all models on the test set at the "
                  "CV-selected threshold (ordered by test PR-AUC)", fontsize=13)
     _save(fig, "09b_confusion_all.png")
+
+
+def plot_recall_by_failure_mode(err_df, modes):
+    """Heatmap of recall per failure mode (models x modes)."""
+    df = err_df.set_index("model")
+    rec = df[[f"recall_{m}" for m in modes]].astype(float)
+    rec.columns = modes
+    annot = rec.copy().astype(object)
+    for m in modes:
+        for name in rec.index:
+            n = int(df.loc[name, f"n_{m}"])
+            hit = n - int(df.loc[name, f"fn_{m}"])
+            r = rec.loc[name, m]
+            annot.loc[name, m] = "n/a" if n == 0 else f"{r:.2f}\n({hit}/{n})"
+    fig, ax = plt.subplots(figsize=(10, 7))
+    sns.heatmap(rec, annot=annot.values, fmt="", cmap="RdYlGn", vmin=0, vmax=1,
+                linewidths=0.5, ax=ax, annot_kws={"fontsize": 8},
+                cbar_kws={"label": "Recall (fraction of failures of that mode "
+                                   "detected)"})
+    for j, m in enumerate(modes):
+        for i, name in enumerate(rec.index):
+            if np.isnan(rec.loc[name, m]):
+                ax.add_patch(plt.Rectangle((j, i), 1, 1, color="0.9"))
+                ax.text(j + 0.5, i + 0.5, "n/a", ha="center", va="center",
+                        fontsize=8, color="0.4")
+    n_cols = [f"{m}\n(n = {int(df[f'n_{m}'].iloc[0])})" for m in modes]
+    ax.set_xticklabels(n_cols, rotation=0)
+    ax.set_xlabel("Failure mode of the test failures "
+                  "(multi-mode rows count in each mode)")
+    ax.set_ylabel("Model (ordered by test PR-AUC)")
+    ax.set_title("Recall by failure mode on the test set at the CV-selected "
+                 "threshold\n(n/a: no test failure with that mode)")
+    plt.tight_layout()
+    _save(fig, "18_recall_by_failure_mode.png")
+
+
+def plot_errors_on_physics(raw, preds_by_model, osf_limits, pwf_band):
+    """Test set on the OSF and PWF rule planes, one row per model.
+
+    raw: raw test rows (features + target). preds_by_model: {name: 0/1}.
+    """
+    y = raw[TARGET].to_numpy()
+    wear = raw["Tool wear [min]"].to_numpy()
+    torque = raw["Torque [Nm]"].to_numpy()
+    speed = raw["Rotational speed [rpm]"].to_numpy()
+    names = list(preds_by_model)
+    fig, axes = plt.subplots(len(names), 2, figsize=(14, 6.6 * len(names)),
+                             squeeze=False)
+    styles = [
+        ("TN", dict(c="0.8", s=6, marker=".", label="Normal, predicted normal")),
+        ("FP", dict(c="#E69F00", s=28, marker="^", label="False positive")),
+        ("TP", dict(c="#0072B2", s=26, marker="o", label="True positive (failure detected)")),
+        ("FN", dict(c="#D55E00", s=70, marker="X", edgecolors="black",
+                    linewidths=0.5, label="False negative (missed failure)")),
+    ]
+    wear_grid = np.linspace(max(wear.min(), 1), wear.max(), 300)
+    speed_grid = np.linspace(speed.min(), speed.max(), 300)
+    omega = speed_grid * 2 * np.pi / 60
+    for row, name in enumerate(names):
+        pred = preds_by_model[name]
+        groups = {"TN": (y == 0) & (pred == 0), "FP": (y == 0) & (pred == 1),
+                  "TP": (y == 1) & (pred == 1), "FN": (y == 1) & (pred == 0)}
+        ax_osf, ax_pwf = axes[row]
+        for key, kw in styles:
+            g = groups[key]
+            lab = f"{kw['label']} ({int(g.sum())})"
+            ax_osf.scatter(wear[g], torque[g], **{**kw, "label": lab})
+            ax_pwf.scatter(speed[g], torque[g], **{**kw, "label": lab})
+        for (ptype, limit), ls in zip(osf_limits.items(), ["-", "--", ":"]):
+            ax_osf.plot(wear_grid, limit / wear_grid, color="black", ls=ls, lw=1,
+                        label=f"OSF limit, type {ptype}: wear x torque = "
+                              f"{limit:,} min·Nm")
+        ax_osf.set_xlim(0, wear.max() * 1.03)
+        ax_osf.set_ylim(0, torque.max() * 1.05)
+        ax_osf.set_xlabel("Tool wear [min]")
+        ax_osf.set_ylabel("Torque [Nm]")
+        ax_osf.set_title(f"{name}: overstrain plane (OSF rule)")
+        ax_osf.legend(fontsize=7, loc="upper center", ncol=2,
+                      bbox_to_anchor=(0.5, -0.12))
+
+        for p, ls in zip(pwf_band, ["--", "-"]):
+            ax_pwf.plot(speed_grid, p / omega, color="black", ls=ls, lw=1,
+                        label=f"PWF band edge: power = {p:,} W")
+        ax_pwf.set_ylim(0, torque.max() * 1.05)
+        ax_pwf.set_xlabel("Rotational speed [rpm]")
+        ax_pwf.set_ylabel("Torque [Nm]")
+        ax_pwf.set_title(f"{name}: power plane (PWF rule, failure outside the band)")
+        ax_pwf.legend(fontsize=7, loc="upper center", ncol=2,
+                      bbox_to_anchor=(0.5, -0.12))
+    fig.suptitle("Where the models miss failures: test set on the "
+                 "failure-rule planes", fontsize=13)
+    plt.tight_layout()
+    _save(fig, "19_errors_on_physics.png")
