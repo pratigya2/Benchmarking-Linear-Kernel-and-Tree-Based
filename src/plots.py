@@ -374,3 +374,66 @@ def plot_failure_modes(noise_df):
              f"this CSV contains {rnf} RNF flags.", fontsize=8, style="italic")
     plt.tight_layout()
     _save(fig, "01b_failure_modes.png")
+
+
+def plot_logreg_coef_comparison(coef_df):
+    """Grouped horizontal bars: L2 / L1 / ElasticNet coefficients."""
+    models = list(coef_df.columns)
+    colors = {"LogReg_L2": "#4C72B0", "LogReg_L1": "#DD8452",
+              "LogReg_ElasticNet": "#55A868"}
+    n = len(coef_df)
+    y = np.arange(n)
+    h = 0.8 / len(models)
+    fig, ax = plt.subplots(figsize=(10, max(6, 0.32 * n)))
+    for i, m in enumerate(models):
+        n_zero = int((coef_df[m] == 0).sum())
+        ax.barh(y + (i - (len(models) - 1) / 2) * h, coef_df[m], height=h,
+                color=colors.get(m), edgecolor="none",
+                label=f"{m} ({n_zero} of {n} coefficients exactly 0)")
+    ax.set_yticks(y, coef_df.index, fontsize=8)
+    ax.invert_yaxis()
+    ax.axvline(0, color="black", lw=0.8)
+    ax.set_xlabel("Coefficient (change in log-odds per 1 SD of a standardised "
+                  "feature; per unit for Type dummies)")
+    ax.set_ylabel("Feature (sorted by |L2 coefficient|)")
+    ax.set_title("Logistic regression coefficients at the CV-selected C")
+    ax.legend(loc="lower right", fontsize=8)
+    plt.tight_layout()
+    _save(fig, "12b_logreg_coef_comparison.png")
+
+
+def plot_l1_path(coef_df, summary_df, top_n=8):
+    """L1 regularisation path and number of non-zero coefficients vs C."""
+    Cs = coef_df.index.to_numpy()
+    sel = summary_df.loc[summary_df["cv_selected"], "C"].iloc[0]
+    top = coef_df.iloc[-1].abs().sort_values(ascending=False).index[:top_n]
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5),
+                             gridspec_kw={"width_ratios": [1.6, 1]})
+    palette = sns.color_palette("tab10", top_n)
+    for col in coef_df.columns:
+        if col not in top:
+            axes[0].plot(Cs, coef_df[col], color="0.75", lw=0.8)
+    axes[0].plot([], [], color="0.75", lw=0.8, label="Other features")
+    for c, col in zip(palette, top):
+        axes[0].plot(Cs, coef_df[col], color=c, lw=1.8, label=col)
+    for ax in axes:
+        ax.set_xscale("log")
+        ax.axvline(sel, color="black", ls="--", lw=1)
+        ax.set_xlabel("Inverse regularisation strength C (log scale, unitless)")
+    axes[0].plot([], [], color="black", ls="--", label=f"CV-selected C = {sel:g}")
+    axes[0].axhline(0, color="black", lw=0.6)
+    axes[0].set_ylabel("Coefficient (log-odds per 1 SD)")
+    axes[0].set_title(f"L1 logistic regression path (top {top_n} features "
+                      f"by |coef| at C = {Cs[-1]:g} highlighted)")
+    axes[0].legend(fontsize=7, loc="upper left", ncol=1)
+
+    axes[1].plot(summary_df["C"], summary_df["n_nonzero"], "o-",
+                 color="#DD8452", label="Non-zero coefficients")
+    axes[1].axhline(summary_df["n_features"].iloc[0], color="0.5", ls=":",
+                    label=f"All features ({summary_df['n_features'].iloc[0]})")
+    axes[1].plot([], [], color="black", ls="--", label=f"CV-selected C = {sel:g}")
+    axes[1].set_ylabel("Number of non-zero coefficients (count)")
+    axes[1].set_title("Sparsity along the L1 path")
+    axes[1].legend(fontsize=8, loc="lower right")
+    plt.tight_layout()
+    _save(fig, "12c_l1_path.png")

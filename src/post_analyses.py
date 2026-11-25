@@ -6,9 +6,11 @@ Nothing here feeds back into model selection: test-set analyses are
 descriptive and happen after the final evaluation.
 """
 
+import numpy as np
 import pandas as pd
 
 from . import config, plots
+from .analysis import logreg_coefficient_comparison, l1_regularisation_path
 from .config import FAILURE_MODES, TARGET
 from .data import load_raw
 
@@ -52,6 +54,26 @@ def label_noise_table(df_raw):
     return out
 
 
+# ── 3.2 Logistic-regression coefficients ───────────────────────────────
+
+def logreg_analysis(state, X_train, y_train, fast=False):
+    coef = logreg_coefficient_comparison(state["estimators"])
+    _save_table(coef, "logreg_coefficients.csv", index=True)
+    zeros = (coef == 0).sum()
+    print("Exactly-zero coefficients at the selected C: "
+          + ", ".join(f"{m} {int(z)}/{len(coef)}" for m, z in zeros.items()))
+    plots.plot_logreg_coef_comparison(coef)
+
+    Cs = np.logspace(-3, 2, 5 if fast else 20)
+    path, summary = l1_regularisation_path(
+        state["estimators"]["LogReg_L1"], X_train, y_train, Cs)
+    _save_table(path, "l1_path_coefficients.csv", index=True)
+    _save_table(summary, "l1_path.csv")
+    print("L1 path (C, non-zero / total):")
+    print(summary.to_string(index=False))
+    plots.plot_l1_path(path, summary)
+
+
 # ── Driver ────────────────────────────────────────────────────────────
 
 def run_all(state, X_train, X_test, y_train, y_test, fast=False):
@@ -64,3 +86,6 @@ def run_all(state, X_train, X_test, y_train, y_test, fast=False):
     _save_table(noise, "label_noise.csv")
     print(noise.to_string(index=False))
     plots.plot_failure_modes(noise)
+
+    _header("3.2 Logistic-regression coefficients and L1 path")
+    logreg_analysis(state, X_train, y_train, fast)

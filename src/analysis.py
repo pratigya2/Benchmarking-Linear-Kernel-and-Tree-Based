@@ -205,3 +205,50 @@ def shap_analysis(estimator, X_test):
     explainer = shap.TreeExplainer(clf)
     shap_values = explainer.shap_values(X_pre.to_numpy())
     return shap_values, X_pre
+
+
+# ── Phase 3.2: logistic-regression coefficients ───────────────────────
+
+LOGREG_MODELS = ["LogReg_L2", "LogReg_L1", "LogReg_ElasticNet"]
+
+
+def logreg_coefficient_comparison(estimators, models=LOGREG_MODELS):
+    """Selected coefficients of the three logistic regressions side by side.
+
+    Inputs are the pipeline features: standardised numeric variables, their
+    pairwise products and the 0/1 Type dummies. Rows are sorted by |L2 coef|.
+    """
+    cols = {}
+    for name in models:
+        est = estimators[name]
+        cols[name] = pd.Series(est.named_steps["clf"].coef_[0],
+                               index=get_feature_names(est.named_steps["pre"]))
+    df = pd.DataFrame(cols)
+    df = df.loc[df[models[0]].abs().sort_values(ascending=False).index]
+    df.index.name = "feature"
+    return df
+
+
+def l1_regularisation_path(estimator, X_train, y_train, Cs):
+    """Refit the selected L1 model over ``Cs`` (all other settings fixed).
+
+    Uses the fitted preprocessor of the selected pipeline (fitted on the
+    training set). Returns (coef_df: C x feature, summary_df).
+    """
+    pre = estimator.named_steps["pre"]
+    names = get_feature_names(pre)
+    Xt = pre.transform(X_train)
+    selected_C = estimator.named_steps["clf"].C
+    Cs = np.unique(np.append(np.asarray(Cs, dtype=float), selected_C))
+    coefs, rows = [], []
+    for C in Cs:
+        clf = clone(estimator.named_steps["clf"]).set_params(C=C).fit(Xt, y_train)
+        coef = clf.coef_[0]
+        coefs.append(coef)
+        rows.append({"C": C, "n_features": len(coef),
+                     "n_nonzero": int(np.sum(coef != 0)),
+                     "n_exactly_zero": int(np.sum(coef == 0)),
+                     "n_iter": int(np.max(clf.n_iter_)),
+                     "cv_selected": bool(np.isclose(C, selected_C))})
+    coef_df = pd.DataFrame(coefs, index=pd.Index(Cs, name="C"), columns=names)
+    return coef_df, pd.DataFrame(rows)
