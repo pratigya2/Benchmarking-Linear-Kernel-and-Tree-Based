@@ -36,6 +36,8 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 
 ```
 ├── main.py                  # Entry point — runs the full pipeline
+├── analyze.py               # Reloads outputs/_state.joblib (no retuning)
+├── requirements.txt         # Pinned dependency versions
 ├── src/
 │   ├── config.py            # Constants, paths, feature names, seed
 │   ├── data.py              # Load, clean, train/test split
@@ -43,6 +45,7 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 │   ├── models.py            # Model specs and hyperparameter grids
 │   ├── evaluation.py        # Tuning, thresholds, metrics, bootstrap tests
 │   ├── analysis.py          # Ablation, SMOTE, feature importance, SHAP
+│   ├── reproducibility.py   # Run log, run metadata, ConvergenceWarning counting
 │   └── plots.py             # All 17 figures
 ├── data/
 │   └── ai4i2020.csv         # Downloaded from UCI (not tracked in git)
@@ -66,8 +69,14 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 │   │   ├── 16_model_ranking.png
 │   │   └── 17_multi_metric_comparison.png
 │   ├── test_metrics.csv
+│   ├── cv_results.csv       # Tuning summary per model (grid edge, convergence warnings)
 │   ├── ablation_results.csv
-│   └── smote_comparison.csv
+│   ├── smote_comparison.csv
+│   ├── run_metadata.json    # Commit, versions, hardware, seed, runtime
+│   ├── run.log              # Full console log of the run
+│   └── _state.joblib        # Fitted models, thresholds, test scores
+├── tests/
+│   └── test_pipeline.py     # pytest suite (includes a --fast smoke run)
 └── README.md
 ```
 
@@ -75,10 +84,20 @@ Gradient Boosting and XGBoost are statistically tied (bootstrap p = 0.46) and si
 
 ## Setup
 
-**Requirements:** Python 3.10+
+**Requirements:** Python 3.12 (the version the reference results were produced with). Exact package versions are pinned in `requirements.txt`.
+
+**macOS prerequisite:** XGBoost needs the OpenMP runtime, which is not bundled with the pip wheel. Without it, `import xgboost` fails with `Library not loaded: @rpath/libomp.dylib`.
 
 ```bash
-pip install scikit-learn numpy pandas matplotlib seaborn imbalanced-learn xgboost shap
+brew install libomp
+```
+
+**Create the environment** (conda-forge channel; any Python 3.12 virtual environment works as well):
+
+```bash
+conda create -n aliens-ml -c conda-forge --override-channels python=3.12 -y
+conda activate aliens-ml
+pip install -r requirements.txt
 ```
 
 **Download the dataset:**
@@ -94,8 +113,18 @@ curl -L -o data/ai4i2020.csv \
 ## Usage
 
 ```bash
-python main.py
+python main.py                      # full run (writes to outputs/)
+python main.py --fast               # smoke test, < 2 min; results not meaningful
+python main.py --skip-ablation --skip-smote
+python main.py --out-dir results/run_a
 ```
+
+| Option | Effect |
+|---|---|
+| `--fast` | 2,000-row stratified subsample, 3-fold CV, first grid value only, 200 bootstrap resamples, no SHAP |
+| `--skip-ablation` | Skip the interactions/PCA ablation study |
+| `--skip-smote` | Skip the SMOTE vs class-weight comparison |
+| `--out-dir DIR` | Write all outputs to `DIR` (default `outputs/`) |
 
 The full pipeline takes ~10–15 minutes and runs through:
 

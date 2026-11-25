@@ -9,16 +9,16 @@ from sklearn.metrics import (
 )
 from sklearn.calibration import calibration_curve
 
-from .config import TARGET, NUM_FEATURES, PHYSICS_PAIRS, FIG_DIR
-
-FIG_DIR.mkdir(parents=True, exist_ok=True)
+from . import config
+from .config import TARGET, NUM_FEATURES, PHYSICS_PAIRS
 
 DPI = 150
 SAVE_KW = dict(dpi=DPI, bbox_inches="tight")
 
 
 def _save(fig, name):
-    fig.savefig(FIG_DIR / name, **SAVE_KW)
+    config.FIG_DIR.mkdir(parents=True, exist_ok=True)
+    fig.savefig(config.FIG_DIR / name, **SAVE_KW)
     plt.close(fig)
 
 

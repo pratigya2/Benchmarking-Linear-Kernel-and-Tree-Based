@@ -9,6 +9,15 @@ DATA_PATH = ROOT / "data" / "ai4i2020.csv"
 OUT_DIR = ROOT / "outputs"
 FIG_DIR = OUT_DIR / "figures"
 
+
+def set_out_dir(path):
+    """Redirect all outputs. Modules must read config.OUT_DIR / config.FIG_DIR
+    at call time (not bind them at import) for this to take effect."""
+    global OUT_DIR, FIG_DIR
+    OUT_DIR = Path(path).resolve()
+    FIG_DIR = OUT_DIR / "figures"
+    return OUT_DIR
+
 TARGET = "Machine failure"
 CAT_COL = "Type"
 ID_COLS = ["UDI", "Product ID"]

@@ -1,4 +1,7 @@
+import json
+import numbers
 import time
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_predict
@@ -9,10 +12,14 @@ from sklearn.metrics import (
 )
 
 from .config import SEED, CV_FOLDS
+from .reproducibility import (
+    CountingPipeline, scoring_with_convergence, total_convergence_warnings,
+    count_convergence, reemit,
+)
 
 
-def get_cv():
-    return StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED)
+def get_cv(n_splits=CV_FOLDS):
+    return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
 
 
 def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
@@ -24,12 +31,14 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
         print(f"\n--- {name} ---")
         t0 = time.time()
 
-        pipe = Pipeline([("pre", preprocessor), ("clf", spec["clf"])])
+        pipe = CountingPipeline([("pre", preprocessor), ("clf", spec["clf"])])
         scoring = "roc_auc" if spec.get("no_proba") else "average_precision"
 
+        # Second (pseudo-)metric counts ConvergenceWarnings per fit;
+        # refit="score" keeps model selection on the main metric.
         gs = GridSearchCV(
-            pipe, spec["grid"], scoring=scoring,
-            cv=cv, n_jobs=-1, refit=True, return_train_score=True,
+            pipe, spec["grid"], scoring=scoring_with_convergence(scoring),
+            cv=cv, n_jobs=-1, refit="score", return_train_score=True,
         )
         gs.fit(X_train, y_train)
         elapsed = time.time() - t0
@@ -37,32 +46,111 @@ def tune_models(model_specs, preprocessor, X_train, y_train, cv=None):
         print(f"  Best params: {gs.best_params_}")
         print(f"  Best CV {scoring}: {gs.best_score_:.4f}")
         print(f"  Time: {elapsed:.1f}s")
+        n_conv = total_convergence_warnings(gs.cv_results_, gs.n_splits_)
+        n_conv_refit = gs.best_estimator_.n_convergence_warnings_
+        print(f"  ConvergenceWarnings: {n_conv} in "
+              f"{len(gs.cv_results_['params']) * gs.n_splits_} CV fits, "
+              f"{n_conv_refit} in refit")
 
         results[name] = {
             "best_params": gs.best_params_,
             "cv_score": gs.best_score_,
             "scoring": scoring,
             "time": elapsed,
+            "summary": _cv_summary(name, gs, spec["grid"], scoring, elapsed),
         }
         estimators[name] = gs.best_estimator_
 
     return results, estimators
 
 
-def select_thresholds(estimators, X_train, y_train, cv=None):
+def grid_edge_check(best_params, grid):
+    """Flag hyperparameters whose selected value lies on the grid boundary.
+
+    Only numeric parameters are checked (``None`` is treated as the largest
+    value, e.g. ``max_depth=None`` = unlimited). Parameters with >= 3 grid
+    values set the edge flag; parameters with exactly 2 values are always
+    "on the boundary" by construction, so they are only reported.
+
+    Returns (best_on_grid_edge, edge_params, two_value_params_at_bound).
+    """
+    edge, two_value = [], []
+    for param, values in grid.items():
+        numeric = [v for v in values if v is not None]
+        if not all(isinstance(v, numbers.Number) and not isinstance(v, bool)
+                   for v in numeric):
+            continue  # categorical parameter: no ordering, no edge
+        ordered = sorted(numeric) + ([None] if None in values else [])
+        if len(ordered) < 2:
+            continue
+        best = best_params[param]
+        if best == ordered[0] or best == ordered[-1]:
+            (edge if len(ordered) >= 3 else two_value).append(param)
+    return bool(edge), edge, two_value
+
+
+def _cv_summary(name, gs, grid, scoring, elapsed):
+    res = gs.cv_results_
+    i = gs.best_index_
+    n_splits = gs.n_splits_
+    folds = [float(res[f"split{k}_test_score"][i]) for k in range(n_splits)]
+    on_edge, edge_params, two_value = grid_edge_check(gs.best_params_, grid)
+    n_configs = len(res["params"])
+    return {
+        "model": name,
+        "scoring": scoring,
+        "best_params": json.dumps(gs.best_params_),
+        "best_cv_mean": float(res["mean_test_score"][i]),
+        "best_cv_std": float(res["std_test_score"][i]),
+        "fold_scores": json.dumps(folds),
+        "n_configs": n_configs,
+        "n_folds": n_splits,
+        "n_fits": n_configs * n_splits,
+        "tuning_time_s": round(elapsed, 2),
+        "mean_fit_time_s": round(float(np.mean(res["mean_fit_time"])), 4),
+        "best_on_grid_edge": on_edge,
+        "edge_params": ";".join(edge_params),
+        "two_value_params_at_bound": ";".join(two_value),
+        "convergence_warnings": total_convergence_warnings(res, n_splits),
+        "refit_convergence_warnings": gs.best_estimator_.n_convergence_warnings_,
+    }
+
+
+def cv_results_table(results, threshold_warnings=None):
+    """One row per model, as saved to cv_results.csv."""
+    df = pd.DataFrame([r["summary"] for r in results.values()])
+    if threshold_warnings is not None:
+        df["threshold_convergence_warnings"] = df["model"].map(threshold_warnings)
+    return df
+
+
+def select_thresholds(estimators, X_train, y_train, cv=None,
+                      warning_counts=None):
+    """F1-optimal threshold on out-of-fold predictions.
+
+    If ``warning_counts`` (a dict) is given, it is filled with the number of
+    ConvergenceWarnings raised by the out-of-fold refits of each model.
+    cross_val_predict runs in this process (n_jobs=None), so the warnings
+    can be captured directly; they are re-emitted afterwards.
+    """
     cv = cv or get_cv()
     thresholds = {}
 
     for name, est in estimators.items():
-        if hasattr(est, "predict_proba"):
-            oof = cross_val_predict(est, X_train, y_train, cv=cv,
-                                    method="predict_proba")[:, 1]
-        elif hasattr(est, "decision_function"):
-            oof = cross_val_predict(est, X_train, y_train, cv=cv,
-                                    method="decision_function")
-        else:
+        if not (hasattr(est, "predict_proba") or hasattr(est, "decision_function")):
             thresholds[name] = 0.5
             continue
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            if hasattr(est, "predict_proba"):
+                oof = cross_val_predict(est, X_train, y_train, cv=cv,
+                                        method="predict_proba")[:, 1]
+            else:
+                oof = cross_val_predict(est, X_train, y_train, cv=cv,
+                                        method="decision_function")
+        if warning_counts is not None:
+            warning_counts[name] = count_convergence(records)
+        reemit(records)
 
         prec, rec, thresh = precision_recall_curve(y_train, oof)
         f1s = 2 * prec * rec / (prec + rec + 1e-12)
@@ -131,7 +219,7 @@ def paired_bootstrap_test(y_true, proba_a, proba_b,
     return delta, count / n_boot
 
 
-def significance_table(metrics_df, probas, y_test):
+def significance_table(metrics_df, probas, y_test, n_boot=3000):
     ranked = [n for n in metrics_df.index if n in probas]
     if len(ranked) < 2:
         return
@@ -140,7 +228,7 @@ def significance_table(metrics_df, probas, y_test):
     print(f"Comparing {best} vs. each other model (PR-AUC):")
     for other in ranked[1:]:
         delta, pval = paired_bootstrap_test(
-            y_test, probas[best], probas[other])
+            y_test, probas[best], probas[other], n_boot=n_boot)
         sig = ("***" if pval < 0.001 else
                "**" if pval < 0.01 else
                "*" if pval < 0.05 else "ns")
